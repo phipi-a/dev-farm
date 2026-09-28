@@ -29,6 +29,33 @@ export type {
   RuntimeCredentialName,
   RuntimeCredentialValues,
 } from "./config/index";
+export * from "./continue/workflow";
+export {
+  ContinueDuplicateError,
+  ContinueInvalidStateError,
+  ContinueProviderError,
+  ContinueValidationError,
+  ContinueWorkerNotFoundError,
+  ContinueWorkflowError,
+} from "./continue/models";
+export type {
+  ContinueAuditPort,
+  ContinueAuditRecord,
+  ContinueInjectionInput,
+  ContinueInjectionPort,
+  ContinueOutcome,
+  ContinuePullRequestIdentity,
+  ContinuePullRequestPort,
+  ContinueReason,
+  ContinueRequest,
+  ContinueResult,
+  ContinueStatePort,
+  ContinueStatusPort,
+  ContinueStatusRecord,
+  ContinueWorkerRecord,
+  ContinueWorkerResult,
+  ContinueWorkflowDependencies,
+} from "./continue/models";
 export * from "./github/index";
 export * from "./linear/index";
 export * from "./merge/workflow";

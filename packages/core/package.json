@@ -22,6 +22,10 @@
       "types": "./dist/cleanup/index.d.ts",
       "import": "./dist/cleanup/index.js"
     },
+    "./continue": {
+      "types": "./dist/continue/index.d.ts",
+      "import": "./dist/continue/index.js"
+    },
     "./config": {
       "types": "./dist/config/index.d.ts",
       "import": "./dist/config/index.js"
