@@ -22,6 +22,10 @@
       "types": "./dist/docker/index.d.ts",
       "import": "./dist/docker/index.js"
     },
+    "./e2e": {
+      "types": "./dist/e2e/index.d.ts",
+      "import": "./dist/e2e/index.js"
+    },
     "./events": {
       "types": "./dist/events/index.d.ts",
       "import": "./dist/events/index.js"
@@ -38,6 +42,10 @@
       "types": "./dist/orchestrator/index.d.ts",
       "import": "./dist/orchestrator/index.js"
     },
+    "./parallel": {
+      "types": "./dist/parallel/index.d.ts",
+      "import": "./dist/parallel/index.js"
+    },
     "./ports": {
       "types": "./dist/ports/index.d.ts",
       "import": "./dist/ports/index.js"
@@ -45,6 +53,10 @@
     "./recovery": {
       "types": "./dist/recovery/index.d.ts",
       "import": "./dist/recovery/index.js"
+    },
+    "./review": {
+      "types": "./dist/review/index.d.ts",
+      "import": "./dist/review/index.js"
     },
     "./security": {
       "types": "./dist/security/index.d.ts",

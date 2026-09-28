@@ -1,5 +1,6 @@
 export * from "./agent/index";
 export * from "./docker/index";
+export * from "./e2e/index";
 export * from "./events/models";
 export * from "./events/store";
 export * from "./events/summary";
@@ -29,8 +30,10 @@ export type {
 export * from "./github/index";
 export * from "./linear/index";
 export * from "./orchestrator/index";
+export * from "./parallel/index";
 export * from "./ports/index";
 export * from "./recovery/index";
+export * from "./review/index";
 export * from "./security/index";
 export * from "./state/index";
 export * from "./tmux/index";
