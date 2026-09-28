@@ -14,6 +14,7 @@ export type {
   DockerContainerFilters,
   DockerContainerInspection,
   DockerContainerState,
+  DockerPathResolver,
   DockerCreateOptions,
   DockerMount,
   WorkerContainer,

@@ -1,18 +1,24 @@
 # DEV-23 agent-farm operations runbook
 
-**Status: partial implementation; runtime operations planned.** This runbook is a credential-free operating contract for DEV-23. At this revision, the repository contains an implemented base-image definition and smoke validation, but no runtime, CLI, worker orchestration, or service configuration. Consequently, every `dev-farm` command and runbook-specific Pi launcher/session command below is **planned** until an implementation documents and tests that command. Do not treat the examples as evidence that a command exists.
+**Status: implemented library/runtime boundaries; host operations remain partial.** This runbook is a credential-free operating contract for DEV-23. The repository now contains a validated core runtime composition root, worker state/orchestration, local and provider adapter seams, encrypted state backup, a CLI boundary, Pi tool registration, and a deterministic fake E2E harness. It does **not** contain a standalone service/installer or a host that supplies all runtime ports. Read the [public quickstart](../quickstart.md) first for the shortest verified path.
 
 ## Status vocabulary
 
-- **Implemented** means present and verified in the repository. The current implemented image pieces are [`docker/base-image/Dockerfile`](../../docker/base-image/Dockerfile) and [`docker/base-image/smoke.sh`](../../docker/base-image/smoke.sh); they do not provide the worker runtime or its CLI.
-- **Planned** means the behavior and operator contract described here; it must not be advertised as available.
-- **Operator action** means a command an operator may run against an already-installed dependency (for example, `git` or `tmux`).
+- **Implemented** means present and verified in the repository. Evidence must be a source file and test, not a command-shaped example.
+- **Host-owned** means the repository defines an injectable port or contract, while the deployment host supplies the process, Docker/tmux, HTTP, database, secret manager, or Pi SDK implementation.
+- **Planned** means the behavior and operator contract described here has no checked-in implementation and must not be advertised as available.
+- **Operator action** means a command an operator may run against an already-installed dependency (for example, `git`, `docker`, or `tmux`).
 
-| Area | Status | Evidence or boundary |
-| --- | --- | --- |
-| Base image definition and smoke validation | Implemented | [`Dockerfile`](../../docker/base-image/Dockerfile) defines the image; [`smoke.sh`](../../docker/base-image/smoke.sh) builds it and checks the non-root user and required tools. |
-| `dev-farm` CLI, worker runtime/orchestration, and Pi launcher | Planned | No implementation exposes these operations yet. |
-| Worker state, credential integration, service configuration, and backup | Planned | Requirements are described below but have no implementation. |
+| Area                                                                    | Status                                       | Evidence or boundary                                                                                                                                                               |
+| ----------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Base image definition and Docker smoke validation                       | Implemented                                  | [`Dockerfile`](../../docker/base-image/Dockerfile) and [`smoke.sh`](../../docker/base-image/smoke.sh); smoke is credential-free and requires a Docker-compatible context.          |
+| Runtime composition, config validation, state, recovery, local adapters | Implemented                                  | `@agent-farm/core/runtime`, `@agent-farm/core/config`, and their focused tests. The host supplies all I/O ports.                                                                   |
+| Linear/GitHub provider adapters and credential boundary                 | Implemented boundary; host-owned live access | Provider transports, allowlisted `LINEAR_API_TOKEN`/`GITHUB_TOKEN` credential injection, and redaction tests exist; no ambient environment or live account is used by the runtime. |
+| CLI parsing/output/confirmation and runtime resource adapter            | Implemented boundary; host-owned wiring      | `@agent-farm/cli` tests cover command parsing, JSON redaction, stop/destroy mapping, and unavailable higher-level handlers.                                                        |
+| Pi extension tool registration                                          | Implemented boundary; host-owned Pi startup  | The extension registers tools against an SDK-shaped host surface; the host supplies `ExtensionAPI`, runtime creation, and shutdown.                                                |
+| Fake composed E2E harness                                               | Implemented                                  | `@agent-farm/core/e2e` tests three isolated workers, failure abort, Docker cleanup, and state destruction without network or credentials.                                          |
+| Encrypted backup/restore                                                | Implemented library boundary                 | `@agent-farm/core/backup` verifies encrypted snapshots and restores into an empty compatible store; transport/storage deletion remains host-owned.                                 |
+| Standalone installer, service unit, and live provider E2E runner        | Planned/host-owned                           | No checked-in command starts a service, discovers ports, or provisions disposable provider resources.                                                                              |
 
 No secret, token, cookie, private key, or real repository URL belongs in this document, shell history, an image, or a worker checkout.
 
@@ -63,15 +69,15 @@ A project mapping joins one Linear team/project to one GitHub repository. It mus
 
 Required fields:
 
-| Field | Rule |
-| --- | --- |
-| Linear team key | Exact, case-sensitive key (for example, `TEAM`; use a placeholder in examples). |
-| Linear project or issue scope | Approved project identifier, or an explicit team-wide policy. |
-| GitHub owner/repository | Exact owner and repository; no wildcard or organization-wide default. |
-| Default branch | Must be discovered from GitHub and recorded; never assume `main`/`master`. |
-| Worker checkout root | Dedicated path outside the source of truth for mappings and secrets. |
-| Allowed labels/statuses | Explicit allow-list used by the worker. |
-| Human reviewer | Named team or role responsible for merge decisions. |
+| Field                         | Rule                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------- |
+| Linear team key               | Exact, case-sensitive key (for example, `TEAM`; use a placeholder in examples). |
+| Linear project or issue scope | Approved project identifier, or an explicit team-wide policy.                   |
+| GitHub owner/repository       | Exact owner and repository; no wildcard or organization-wide default.           |
+| Default branch                | Must be discovered from GitHub and recorded; never assume `main`/`master`.      |
+| Worker checkout root          | Dedicated path outside the source of truth for mappings and secrets.            |
+| Allowed labels/statuses       | Explicit allow-list used by the worker.                                         |
+| Human reviewer                | Named team or role responsible for merge decisions.                             |
 
 An illustrative, non-secret mapping (planned schema, not a config file) is:
 
@@ -155,9 +161,9 @@ A successful check proves only authentication, not that the identity is least pr
 
 ## 4. Image setup
 
-### 4.1 Image requirements (partially implemented)
+### 4.1 Image requirements (implemented image boundary)
 
-The repository includes an image definition at [`docker/base-image/Dockerfile`](../../docker/base-image/Dockerfile) and a smoke check at [`docker/base-image/smoke.sh`](../../docker/base-image/smoke.sh). The Dockerfile defines a pinned base image, a non-root `dev` user, Pi and repository tooling, and a healthcheck; the smoke script builds the image and checks the user, workspace, and required tools. These are implemented image-build pieces, not a worker runtime or orchestrator.
+The repository includes an image definition at [`docker/base-image/Dockerfile`](../../docker/base-image/Dockerfile) and a smoke check at [`docker/base-image/smoke.sh`](../../docker/base-image/smoke.sh). The Dockerfile defines a pinned base image, a non-root `dev` user, Pi and repository tooling, and a healthcheck; the smoke script builds the image and checks the user, workspace, and required tools. Run it with `./docker/base-image/smoke.sh`. This verifies the image only; the runtime receives its image reference through validated host configuration.
 
 The worker image should be built from a pinned base digest and contain only the tools required by the mapped project. It should:
 
@@ -170,7 +176,7 @@ The worker image should be built from a pinned base digest and contain only the 
 - use an allow-listed outbound network policy for Linear, GitHub, package registries, and required CI endpoints;
 - emit logs that exclude environment values and secrets.
 
-The checked-in Dockerfile and smoke script implement the image definition and build-smoke path. Do not mark the full image setup implemented until a built image digest, vulnerability scan, and runtime security test are recorded. This image functionality does not implement worker provisioning, runtime orchestration, or a `dev-farm image` CLI.
+The checked-in Dockerfile and smoke script implement the image definition and build-smoke path. A deployment must still record the built image digest, vulnerability scan, and runtime security test before production use. No `dev-farm image` subcommand or image registry workflow is implemented.
 
 ### 4.2 Planned image lifecycle
 
@@ -186,25 +192,26 @@ Never use `latest` for a production worker. On image update, drain workers, reta
 
 ## 5. Pi and CLI usage
 
-### 5.1 Planned CLI lifecycle
+### 5.1 Implemented CLI boundary and host wiring
 
-The planned CLI should make transitions explicit and idempotent. Illustrative usage:
+`@agent-farm/cli` implements parsing, human/JSON output, redaction, exit codes, and explicit confirmation. Its command vocabulary is `list`, `status`, `attach`, `shell`, `logs`, `preview`, `pr`, `continue`, `merge`, `stop`, and `destroy`. The runtime adapter implements state/resource operations (`list`, `status`, `attach`, `preview`, `stop`, and `destroy`) from the composed runtime; `shell`, `logs`, `pr`, `continue`, and `merge` require injected workflow handlers and fail explicitly when absent. There is no standalone service that supplies those handlers.
+
+The CLI boundary should make transitions explicit and idempotent. The following commands are interface examples; run them only through a host that builds the CLI and injects operations:
 
 ```text
-# Planned; unavailable until implemented.
-dev-farm issue inspect <TEAM_KEY>-<NUMBER>
-dev-farm worker start <TEAM_KEY>-<NUMBER> --image-digest <IMAGE_DIGEST>
-dev-farm worker status <TEAM_KEY>-<NUMBER>
-dev-farm worker logs <TEAM_KEY>-<NUMBER> --redact
-dev-farm worker pause <TEAM_KEY>-<NUMBER>
-dev-farm worker stop <TEAM_KEY>-<NUMBER>
+# CLI command vocabulary implemented; these worker subcommands are host-facing examples,
+# not a checked-in installer or service command.
+agent-farm status <WORKER_ID>
+agent-farm logs <WORKER_ID> --json
+agent-farm stop <WORKER_ID>
+agent-farm destroy <WORKER_ID> --yes
 ```
 
 A start must report the mapping, image digest, checkout path, branch, and credential identity without reporting credential values. A worker may push a branch or open/update a pull request only within the mapped repository. It must not merge.
 
-### 5.2 Planned Pi session
+### 5.2 Host-owned Pi session
 
-Pi is the interactive worker/agent session, not a credential store and not a reviewer. The planned launcher should pass the issue identifier and a minimal task context, and should keep the session inside the isolated checkout:
+Pi is the interactive worker/agent session, not a credential store and not a reviewer. The Pi extension's tool registration is implemented, but the host must provide an SDK-compatible `ExtensionAPI`, create the runtime, and close it. A host launcher should pass the issue identifier and a minimal task context, and should keep the session inside the isolated checkout:
 
 ```text
 # Planned; exact Pi flags and prompt contract are not implemented.
@@ -237,19 +244,19 @@ If attach fails, do not start a second worker until `worker status` confirms whe
 
 ## 7. Worker states and operator actions
 
-The following state model is planned. A state transition must be persisted before its side effect where possible, and retries must be safe.
+The following state model is implemented by the core state store. A host workflow must persist a state transition before its side effect where possible, and retries must be safe.
 
-| State | Meaning | Operator action |
-| --- | --- | --- |
-| `queued` | Accepted but not provisioned. | Check capacity and mapping. |
-| `provisioning` | Checkout, image, and session are being prepared. | Wait; inspect logs if it exceeds the startup timeout. |
-| `running` | Pi may edit only its isolated checkout. | Observe status/logs; do not edit the checkout concurrently. |
-| `awaiting-review` | Branch/PR is ready for human review. | Review diff, tests, permissions, and Linear update. |
-| `paused` | Work intentionally suspended with state retained. | Resume only after checking branch and credentials. |
-| `recovering` | Restart or restore is in progress. | Confirm snapshot and image digest before resume. |
-| `stopped` | Process ended; checkout and metadata retained. | Restart, archive, or destroy explicitly. |
-| `failed` | A fatal error requires intervention. | Preserve logs/snapshot, diagnose, then retry from a clean boundary. |
-| `destroyed` | Worker resources were explicitly deleted. | Do not attempt in-place recovery; use branch/snapshot if retained. |
+| State             | Meaning                                           | Operator action                                                     |
+| ----------------- | ------------------------------------------------- | ------------------------------------------------------------------- |
+| `queued`          | Accepted but not provisioned.                     | Check capacity and mapping.                                         |
+| `provisioning`    | Checkout, image, and session are being prepared.  | Wait; inspect logs if it exceeds the startup timeout.               |
+| `running`         | Pi may edit only its isolated checkout.           | Observe status/logs; do not edit the checkout concurrently.         |
+| `awaiting-review` | Branch/PR is ready for human review.              | Review diff, tests, permissions, and Linear update.                 |
+| `paused`          | Work intentionally suspended with state retained. | Resume only after checking branch and credentials.                  |
+| `recovering`      | Restart or restore is in progress.                | Confirm snapshot and image digest before resume.                    |
+| `stopped`         | Process ended; checkout and metadata retained.    | Restart, archive, or destroy explicitly.                            |
+| `failed`          | A fatal error requires intervention.              | Preserve logs/snapshot, diagnose, then retry from a clean boundary. |
+| `destroyed`       | Worker resources were explicitly deleted.         | Do not attempt in-place recovery; use branch/snapshot if retained.  |
 
 No worker may transition directly to `merged`; merge is a human-controlled GitHub action after review. An implementation must expose the current state, last transition, reason, process/session identifier, branch, and image digest.
 
@@ -295,21 +302,26 @@ dev-farm backup restore <SNAPSHOT_ID> --target <EMPTY_WORKER_ROOT>
 
 ## 10. Stop and destroy
 
-**Stop** is reversible: terminate Pi and the container/session, retain the checkout, branch metadata, and redacted diagnostics. Confirm no child process remains.
+**Stop** is reversible: the implemented `CleanupService` terminates worker-owned process/container resources, retains state and review metadata, and marks the worker `stopped` when all cleanup succeeds. A host remains responsible for its checkout/session policy and must confirm no child process remains.
 
-**Destroy** is destructive: stop first, capture an approved snapshot if needed, remove the container/session and private checkout, remove local credentials or mounts, and mark the worker `destroyed`. The remote branch and PR must not be deleted by default. Require an explicit worker ID and confirmation token; never implement destroy from a prompt embedded in an issue.
+**Destroy** is destructive: the implemented service requires explicit confirmation, previews warnings, stops first, removes worker-owned container/network/volume resources and releases allocated ports, then marks the worker `destroyed`. It does not delete the remote branch, commit, or PR. A host that owns checkout mounts must remove the private checkout and local credential mounts after the service succeeds. Require an explicit worker ID and confirmation token; never implement destroy from a prompt embedded in an issue.
 
 ```text
-# Planned; unavailable at the baseline.
-dev-farm worker stop <WORKER_ID>
-dev-farm worker destroy <WORKER_ID> --confirm <WORKER_ID>
+# CLI confirmation boundary; a host must supply the runtime operations.
+agent-farm stop <WORKER_ID>
+agent-farm destroy <WORKER_ID> --yes
 ```
+
+The core `CleanupService` additionally exposes a destroy preview and requires
+explicit confirmation. Stop is reversible; destroy removes only worker-owned
+runtime resources and records warnings rather than deleting remote branches,
+commits, or pull requests.
 
 Before destroy, a human must confirm one of: the PR/branch is the source of truth, a snapshot is retained, or all uncommitted work is intentionally discarded. After destroy, verify that the worker no longer appears in process lists, tmux, container lists, or the private state index.
 
 ## 11. Manual review and merge checklist
 
-Automation may prepare a branch/PR; it must not approve or merge it. A human reviewer must:
+The implemented `ReviewWorkflow` records an exact open-PR snapshot and can resume the same worker after `changes_requested`; it has no merge capability. The separate `MergeWorkflow` requires explicit confirmation, an open PR, successful CI and required checks, an approved review, and confirmed mergeability. Worker-initiated merge is rejected. Automation may prepare a branch/PR; it must not approve or merge it. A human reviewer must:
 
 - [ ] Confirm the PR targets the mapped repository and intended default branch.
 - [ ] Read the complete diff, including generated files and dependency changes.
@@ -326,16 +338,14 @@ If any check fails, leave the issue in `awaiting-review` or `paused`, record the
 
 ## 12. Known limitations and documentation gaps
 
-- **Runtime/orchestration behavior remains planned:** this revision has no `dev-farm` CLI, Pi launcher, worker state store, credential integration, backup implementation, service configuration, or tmux orchestration. The base-image definition and smoke script are implemented separately; all operational commands in this runbook remain planned.
-- The exact CLI name, flags, state persistence format, log redaction behavior, and exit codes are not specified by an implementation.
-- Linear credential granularity depends on the credential type and workspace policy; exact API scopes and mutation allow-lists remain to be verified.
-- GitHub permissions for CI/status reads and PR creation must be tested against the selected App/token model; branch-protection behavior is repository-specific.
-- Network allow-listing, image supply-chain scanning, resource quotas, and host isolation need an implementation-level threat model and tests.
-- Backup encryption, retention, restore drills, and deletion guarantees are policy requirements only until a backup system exists.
-- No concurrency/locking contract exists yet for duplicate workers targeting one issue or branch.
-- Merge conflicts, partial remote writes, API rate limits, and offline operation need explicit retry and reconciliation tests.
-- A future implementation must replace each planned command with a versioned reference and link its automated tests here before this runbook can be called implemented.
+- The runtime, CLI, and Pi extension are injectable library boundaries. A host still owns process startup, Docker/tmux/Git adapters, provider HTTP, SQLite location, Pi SDK startup, and shutdown.
+- The CLI's higher-level `shell`, `logs`, `pr`, `continue`, and `merge` operations are unavailable unless the host injects handlers; the CLI does not duplicate orchestration.
+- Provider access is not exercised by the normal tests. A live runner must use disposable Linear/GitHub resources, an approved secret manager, explicit `RuntimePorts`, and a separate merge gate.
+- The Docker smoke script verifies image behavior but does not provide vulnerability scanning, deployment, quotas, or a live worker.
+- Backup encryption and restore verification are implemented, but backup transport, key management/rotation, retention deletion, and restore drills remain host responsibilities.
+- Merge conflicts, partial remote writes, API rate limits, and offline operation need deployment-level retry and reconciliation tests.
+- No checked-in installer or service unit turns the interface examples into a production `agent-farm` command.
 
 ## Local reference check
 
-This document links to the implemented image files in `docker/base-image/`; its other command references are planned and are not executable references. Before release, run a Markdown heading/link check and verify every planned command against the actual CLI help output and integration tests.
+The implemented references in this runbook are the Docker smoke script, package test commands, core runtime/config/cleanup/review/merge boundaries, and CLI/Pi host seams. Before release, run a Markdown heading/link check and verify host command examples against the built CLI and its injected operations. Keep every unimplemented installer, service, and live-provider example explicitly marked as planned or host-owned.

@@ -65,15 +65,17 @@ export class TmuxCommandError extends TmuxError {
     args: readonly string[],
     result: Pick<TmuxCommandResult, "exitCode" | "stderr">,
   ) {
+    const safeArgs = args.map((arg) => redactTmuxText(arg));
+    const safeStderr = redactTmuxText(result.stderr);
     super(
-      `${command} ${args.join(" ")} failed with exit code ${result.exitCode}`
-      + (result.stderr.length > 0 ? `: ${result.stderr}` : ""),
+      `${command} ${safeArgs.join(" ")} failed with exit code ${result.exitCode}`
+      + (safeStderr.length > 0 ? `: ${safeStderr}` : ""),
     );
     this.name = "TmuxCommandError";
     this.command = command;
-    this.args = [...args];
+    this.args = safeArgs;
     this.exitCode = result.exitCode;
-    this.stderr = result.stderr;
+    this.stderr = safeStderr;
   }
 }
 
@@ -129,6 +131,12 @@ function validateWindows(windows: readonly TmuxWindowName[]): readonly TmuxWindo
   return result;
 }
 
+function redactTmuxText(value: string): string {
+  return value
+    .replace(/(token|secret|password|passwd|authorization|api[-_]?key|credential)=([^\s]+)/giu, "$1=[REDACTED]")
+    .replace(/\b(?:gh[pousr]|github_pat|glpat|sk)[-_][A-Za-z0-9_-]+\b/gu, "[REDACTED]");
+}
+
 function shellQuote(value: string): string {
   // Commands are shown to a POSIX shell in generated output. The runner path
   // never uses this function and passes command text as an argv element.
@@ -164,6 +172,9 @@ export class TmuxSessionManager {
   readonly #windows: readonly TmuxWindowName[];
 
   public constructor(runner: TmuxCommandRunner, options: TmuxSessionOptions = {}) {
+    if (runner === null || typeof runner !== "object" || typeof runner.run !== "function") {
+      throw new TmuxValidationError("a tmux command runner is required");
+    }
     this.#runner = runner;
     this.#sessionName = requireNonEmpty(options.sessionName ?? DEFAULT_TMUX_SESSION, "session name");
     this.#windows = validateWindows(options.windows ?? DEFAULT_TMUX_WINDOWS);
@@ -276,7 +287,7 @@ export class TmuxSessionManager {
     try {
       result = await this.#runner.run("tmux", args);
     } catch (error) {
-      throw new TmuxError(`tmux command failed to run: ${args.join(" ")}`, { cause: error });
+      throw new TmuxError(`tmux command failed to run: ${args.map((arg) => redactTmuxText(arg)).join(" ")}`, { cause: error });
     }
     if (
       result === null

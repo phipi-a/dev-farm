@@ -407,6 +407,44 @@ export interface PiExtension {
   invoke<Name extends ToolName>(name: Name, input: unknown): Promise<ToolResult<Name>>;
 }
 
+/**
+ * The small part of Pi's extension host used by this package.  The concrete
+ * SDK is intentionally not a dependency of the core workspace: Pi supplies
+ * `registerTool`, while this package supplies the registration descriptor and
+ * execution bridge.
+ */
+export interface PiExtensionHost<Schema = ToolSchema> {
+  registerTool(tool: PiRegisteredTool<Schema>): void;
+}
+
+/** The result shape consumed by Pi's ExtensionAPI.registerTool callback. */
+export interface PiRegisteredToolResult {
+  readonly content: { readonly type: "text"; readonly text: string }[];
+  readonly details: ToolResult;
+}
+
+export type PiToolUpdate = (update: PiRegisteredToolResult) => void;
+
+/** Structural equivalent of Pi's registerTool descriptor, without importing its SDK. */
+export interface PiRegisteredTool<Schema = ToolSchema> {
+  readonly name: ToolName;
+  readonly label: string;
+  readonly description: string;
+  readonly parameters: Schema;
+  execute(
+    toolCallId: string,
+    parameters: unknown,
+    signal: AbortSignal | undefined,
+    onUpdate: PiToolUpdate | undefined,
+    context: unknown,
+  ): Promise<PiRegisteredToolResult>;
+}
+
+/** The runtime surface needed by the registration boundary. */
+export interface PiRuntimeService {
+  readonly orchestrator: PiOrchestrator;
+}
+
 /** Create the SDK-neutral Pi boundary around a shared-core orchestrator. */
 export function createPiExtension(orchestrator: PiOrchestrator): PiExtension {
   if (orchestrator === null || typeof orchestrator !== "object") {
@@ -450,3 +488,63 @@ export function createPiExtension(orchestrator: PiOrchestrator): PiExtension {
 export const PI_TOOL_DEFINITIONS: readonly PiToolDefinition[] = TOOL_NAMES.map(
   (name) => definitions[name],
 );
+
+function resultText(result: ToolResult): string {
+  if (!result.ok) return result.error.message;
+  try {
+    const serialized = JSON.stringify(result.data);
+    return serialized === undefined ? String(result.data) : serialized;
+  } catch {
+    // `redact` has already run; avoid leaking a value by stringifying an
+    // untrusted result again when a host-specific value is not serializable.
+    return "tool operation completed";
+  }
+}
+
+function registeredResult(result: ToolResult): PiRegisteredToolResult {
+  return {
+    content: [{ type: "text", text: resultText(result) }],
+    details: result,
+  };
+}
+
+/**
+ * Register all ticket tools with Pi's actual host registration surface.
+ *
+ * The generic schema parameter lets an installed Pi SDK use its own schema
+ * type (for example TypeBox's `TSchema`) at the call site.  The host adapter
+ * owns that conversion; the execution path remains the validated,
+ * redacted, confirmation-gated path in `createPiExtension`.
+ */
+export function registerPiTools<Schema = ToolSchema>(
+  host: PiExtensionHost<Schema>,
+  orchestrator: PiOrchestrator,
+): PiExtension {
+  if (host === null || typeof host !== "object" || typeof host.registerTool !== "function") {
+    throw new Error("a Pi extension host with registerTool is required");
+  }
+  const extension = createPiExtension(orchestrator);
+  for (const definition of extension.tools) {
+    const name = definition.name;
+    host.registerTool({
+      name,
+      label: name,
+      description: definition.description,
+      parameters: definition.inputSchema as Schema,
+      execute: async (_toolCallId, parameters, _signal, _onUpdate, _context) =>
+        registeredResult(await extension.invoke(name, parameters)),
+    });
+  }
+  return extension;
+}
+
+/** Register tools against a runtime created by the DEV-31 composition root. */
+export function registerRuntimePiTools<Schema = ToolSchema>(
+  host: PiExtensionHost<Schema>,
+  runtime: PiRuntimeService,
+): PiExtension {
+  if (runtime === null || typeof runtime !== "object") {
+    throw new Error("a runtime service is required");
+  }
+  return registerPiTools(host, runtime.orchestrator);
+}

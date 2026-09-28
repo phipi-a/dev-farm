@@ -19,14 +19,16 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Audit production and development dependencies
+        run: npm audit --audit-level=high --ignore-scripts
       - name: Run format, lint, typecheck, and tests
         run: npm run ci
       - name: Build package outputs
@@ -43,7 +45,7 @@ jobs:
           test "$(find "$output" -maxdepth 1 -type f -name '*.tgz' | wc -l)" -eq 3
           sha256sum "$output"/*.tgz | tee "$output/SHA256SUMS"
       - name: Upload package archives
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: package-archives-${{ github.sha }}
           path: ${{ runner.temp }}/package-archives
@@ -56,9 +58,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Exercise the base image
         env:
           IMAGE_TAG: dev-farm/pi-agent-base:ci-${{ github.sha }}
           IMAGE_VERSION: ci-${{ github.sha }}
         run: docker/base-image/smoke.sh
+      - name: Scan the base image for high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: dev-farm/pi-agent-base:ci-${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL

@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * The CLI is intentionally a thin boundary around FarmOperations.  Core does
- * not yet expose all of these operations, so the boundary is a small typed
- * adapter: the host application supplies it and the CLI owns parsing,
+ * The CLI is intentionally a thin boundary around FarmOperations. Runtime
+ * composition is adapted in runtime.ts; this module owns parsing,
  * confirmation, output, and exit-code policy only.
  */
 
@@ -198,7 +197,7 @@ Options:
 
 const DESTRUCTIVE_COMMANDS = new Set<CommandName>(["merge", "destroy"]);
 
-/** Create an adapter that makes missing core integrations explicit. */
+/** Create an adapter that makes missing runtime integrations explicit. */
 export function createUnavailableOperations(): FarmOperations {
   const unavailable = async (request: FarmOperationRequest): Promise<never> => {
     throw new Error(`core integration for '${request.command}' is not available`);
@@ -354,6 +353,8 @@ export async function main(
   if (result.stderr) output.writeStderr(result.stderr);
   return result.exitCode;
 }
+
+export * from "./runtime";
 
 const invokedDirectly =
   process.argv[1]?.endsWith("/cli/src/index.ts") === true ||

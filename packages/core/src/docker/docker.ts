@@ -1,3 +1,4 @@
+import { realpath as fsRealpath } from "node:fs/promises";
 import type { FarmConfig } from "../config/config.ts";
 import type {
   WorkerIsolationPolicy,
@@ -41,13 +42,15 @@ export class DockerCommandError extends DockerError {
   readonly stderr: string;
 
   public constructor(command: string, args: readonly string[], result: Pick<DockerCommandResult, "exitCode" | "stderr">) {
-    super(`${command} ${args.join(" ")} failed with exit code ${result.exitCode}`
-      + (result.stderr.length > 0 ? `: ${result.stderr}` : ""));
+    const safeArgs = redactDockerArgs(args);
+    const safeStderr = redactDockerText(result.stderr);
+    super(`${command} ${safeArgs.join(" ")} failed with exit code ${result.exitCode}`
+      + (safeStderr.length > 0 ? `: ${safeStderr}` : ""));
     this.name = "DockerCommandError";
     this.command = command;
-    this.args = [...args];
+    this.args = safeArgs;
     this.exitCode = result.exitCode;
-    this.stderr = result.stderr;
+    this.stderr = safeStderr;
   }
 }
 
@@ -274,11 +277,17 @@ export interface WorkerContainer {
   readonly inspection: DockerContainerInspection;
 }
 
+export interface DockerPathResolver {
+  realpath(path: string): Promise<string>;
+}
+
 export interface WorkerContainerManagerOptions {
   readonly prefix?: string;
   readonly labelNamespace?: string;
   /** Optional typed farm configuration; values are never read from secrets. */
   readonly config?: Pick<FarmConfig, "dockerPrefix" | "baselineImage">;
+  /** Resolves host paths before isolation policy validation; injectable for daemon-free tests. */
+  readonly paths?: DockerPathResolver;
 }
 
 const DEFAULT_LABEL_NAMESPACE = "dev-farm";
@@ -289,6 +298,7 @@ export class WorkerContainerManager {
   readonly #prefix: string;
   readonly #namespace: string;
   readonly #baselineImage: string | undefined;
+  readonly #paths: DockerPathResolver;
 
   public constructor(client: DockerClientPort, options: WorkerContainerManagerOptions = {}) {
     if (client === null || typeof client !== "object") throw new DockerValidationError("a Docker client is required");
@@ -296,6 +306,7 @@ export class WorkerContainerManager {
     this.#prefix = validName(options.prefix ?? options.config?.dockerPrefix ?? "dev-farm", "Docker prefix");
     this.#namespace = validName(options.labelNamespace ?? DEFAULT_LABEL_NAMESPACE, "label namespace");
     this.#baselineImage = options.config?.baselineImage;
+    this.#paths = options.paths ?? { realpath: fsRealpath };
   }
 
   public containerName(workerId: string): string {
@@ -332,13 +343,15 @@ export class WorkerContainerManager {
 
   public async ensure(request: WorkerContainerRequest): Promise<WorkerContainer> {
     validateWorkerRequest(request);
-    const image = request.image ?? this.#baselineImage;
+    const resolvedRequest = await this.#resolveHostPaths(request);
+    const image = resolvedRequest.image ?? this.#baselineImage;
     if (image === undefined) throw new DockerValidationError("worker image is required");
-    if (request.isolation !== undefined) assertWorkerIsolation(request.isolation, request.isolationPolicy);
+    if (resolvedRequest.isolation !== undefined) assertWorkerIsolation(resolvedRequest.isolation, resolvedRequest.isolationPolicy);
     // Caller labels are accepted, but cannot replace the identity labels used for reconciliation.
-    const labels = { ...(request.labels ?? {}), ...this.labelsFor(request.workerId, request.metadata) };
-    const existing = await this.lookupByLabels({ [`${this.#namespace}/worker-id`]: request.workerId });
-    if (existing.length > 1) throw new DockerError(`multiple worker containers found for ${request.workerId}`);
+    const labels = { ...(resolvedRequest.labels ?? {}), ...this.labelsFor(resolvedRequest.workerId, resolvedRequest.metadata) };
+    const existing = await this.lookupByLabels({ [`${this.#namespace}/worker-id`]: resolvedRequest.workerId });
+    if (existing.length > 1) throw new DockerError(`multiple worker containers found for ${resolvedRequest.workerId}`);
+    validateRuntimeIdentity(resolvedRequest);
     let worker: WorkerContainer;
     if (existing.length === 1) {
       worker = await this.inspect(existing[0].id);
@@ -346,33 +359,59 @@ export class WorkerContainerManager {
       return this.inspect(worker.id);
     }
 
-    const workspaceVolume = request.workspace === undefined ? undefined
-      : request.workspace.name ?? this.workspaceVolumeName(request.workerId);
+    const workspaceVolume = resolvedRequest.workspace === undefined ? undefined
+      : resolvedRequest.workspace.name ?? this.workspaceVolumeName(resolvedRequest.workerId);
     if (workspaceVolume !== undefined) {
       if (!(await this.#client.inspectVolume(workspaceVolume))) await this.#client.createVolume(workspaceVolume);
     }
-    const mounts = this.mounts(request, workspaceVolume);
-    const isolation = request.isolation;
-    const env = { ...(request.env ?? {}) };
+    const mounts = this.mounts(resolvedRequest, workspaceVolume);
+    const isolation = resolvedRequest.isolation;
+    const env = { ...(resolvedRequest.env ?? {}) };
     for (const credential of isolation?.credentials ?? []) {
       if (credential.value !== undefined) env[credential.name] = credential.value;
     }
     const id = await this.#client.createContainer({
-      name: this.containerName(request.workerId),
+      name: this.containerName(resolvedRequest.workerId),
       image,
       labels,
       env,
       mounts,
-      networkMode: request.network?.mode ?? isolation?.network?.mode,
-      memoryBytes: request.resources?.memoryBytes ?? isolation?.resources?.memoryBytes,
-      cpuCount: request.resources?.cpuCount ?? isolation?.resources?.cpuCount,
-      pidsLimit: request.resources?.pidsLimit ?? isolation?.resources?.pidsLimit,
-      user: request.user ?? isolation?.runAsUser ?? isolation?.user,
-      workingDirectory: request.workingDirectory,
-      command: request.command,
+      networkMode: resolvedRequest.network?.mode ?? isolation?.network?.mode,
+      memoryBytes: resolvedRequest.resources?.memoryBytes ?? isolation?.resources?.memoryBytes,
+      cpuCount: resolvedRequest.resources?.cpuCount ?? isolation?.resources?.cpuCount,
+      pidsLimit: resolvedRequest.resources?.pidsLimit ?? isolation?.resources?.pidsLimit,
+      // Docker defaults to root; always send an explicit non-root identity.
+      user: resolvedRequest.user ?? isolation?.runAsUser ?? isolation?.user ?? "1000:1000",
+      workingDirectory: resolvedRequest.workingDirectory,
+      command: resolvedRequest.command,
     });
     await this.#client.startContainer(id);
     return this.inspect(id);
+  }
+
+  async #resolveHostPaths(request: WorkerContainerRequest): Promise<WorkerContainerRequest> {
+    const isolation = request.isolation;
+    if (isolation === undefined) return request;
+    const workspace = isolation.workspace?.hostPath === undefined ? isolation.workspace : {
+      ...isolation.workspace,
+      hostPath: await this.#resolveHostPath(isolation.workspace.hostPath),
+    };
+    const mounts = isolation.mounts === undefined ? undefined : await Promise.all(isolation.mounts.map(async (mount) => ({
+      ...mount,
+      source: await this.#resolveHostPath(mount.source),
+    })));
+    return { ...request, isolation: { ...isolation, workspace, mounts } };
+  }
+
+  async #resolveHostPath(path: string): Promise<string> {
+    try {
+      return await this.#paths.realpath(path);
+    } catch {
+      // Preserve policy diagnostics for obviously forbidden paths, while never
+      // allowing an otherwise-safe unresolved path to reach Docker.
+      if (isLexicallyForbiddenHostPath(path)) return path;
+      throw new DockerValidationError("host mount path could not be resolved");
+    }
   }
 
   public createOrResume(request: WorkerContainerRequest): Promise<WorkerContainer> { return this.ensure(request); }
@@ -450,6 +489,26 @@ function toDockerMount(mount: WorkerMount): DockerMount {
   const destination = mount.destination ?? mount.target;
   if (destination === undefined) throw new DockerValidationError("mount destination is required");
   return { type: mount.type ?? "bind", source: mount.source, destination, readOnly: mount.readOnly };
+}
+function isLexicallyForbiddenHostPath(path: string): boolean {
+  return /^(?:\/home(?:\/|$)|\/root(?:\/|$)|\/var\/run\/docker\.sock$|\/run\/docker\.sock$)/u.test(path);
+}
+function validateRuntimeIdentity(request: WorkerContainerRequest): void {
+  const user = request.user ?? request.isolation?.runAsUser ?? request.isolation?.user;
+  if (user === 0 || (typeof user === "string" && (user.trim() === "0" || user.trim().toLowerCase().startsWith("root:")))) {
+    throw new DockerValidationError("worker containers must run as a non-root user");
+  }
+}
+function redactDockerArgs(args: readonly string[]): string[] {
+  return args.map((arg, index) => {
+    if (index > 0 && args[index - 1] === "--env") return `${arg.split("=", 1)[0]}=[REDACTED]`;
+    return redactDockerText(arg);
+  });
+}
+function redactDockerText(value: string): string {
+  return value
+    .replace(/(token|secret|password|passwd|authorization|api[-_]?key|credential)=([^\s]+)/giu, "$1=[REDACTED]")
+    .replace(/\b(?:gh[pousr]|github_pat|glpat|sk)[-_][A-Za-z0-9_-]+\b/gu, "[REDACTED]");
 }
 function isNotFound(result: DockerCommandResult): boolean {
   return result.exitCode === 1 && /no such|not found|does not exist/iu.test(result.stderr);

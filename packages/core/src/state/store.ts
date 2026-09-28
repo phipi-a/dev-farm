@@ -1,3 +1,4 @@
+import type { QuestionMetadataPort, QuestionRecord } from "../question/models";
 import type { SqliteDatabase, StateDatabaseOptions } from "./database";
 import { openSqliteDatabase } from "./sqlite";
 import {
@@ -13,7 +14,9 @@ import {
   type WorkerTransition,
 } from "./models";
 
-export const STATE_SCHEMA_VERSION = 1;
+export const STATE_SCHEMA_VERSION = 2;
+
+const QUESTION_MAX_LENGTH = 2_000;
 
 export class StateStoreError extends Error {
   public constructor(message: string, options?: { readonly cause?: unknown }) {
@@ -44,6 +47,10 @@ const WORKER_COLUMNS = [
   "process_id", "session_name", "workspace_path", "branch", "base_commit", "commit_sha", "image_digest",
   "pull_request_number", "correlation_id", "snapshot_id", "last_error", "created_at", "updated_at",
   "last_transition_at",
+] as const;
+
+const QUESTION_COLUMNS = [
+  "question_id", "worker_id", "issue_identifier", "question", "asked_at", "status", "answer", "answered_at",
 ] as const;
 
 const RECOVERY_STATE_SQL = RECOVERY_STATES.map((state) => `'${state}'`).join(", ");
@@ -134,6 +141,37 @@ function rowToTransition(row: TransitionRow): WorkerTransition {
   };
 }
 
+function questionText(value: unknown, field: string): string {
+  const result = text(value, field);
+  if (result === undefined) throw new StateStoreError(`${field} is required`);
+  if (result.length > QUESTION_MAX_LENGTH) throw new StateStoreError(`${field} exceeds ${QUESTION_MAX_LENGTH} characters`);
+  return result;
+}
+
+function rowToQuestion(row: WorkerRow): QuestionRecord {
+  const status = row.status;
+  if (status !== "unanswered" && status !== "answered") throw new StateStoreError("database contains an invalid question status");
+  const answer = row.answer === null || row.answer === undefined ? undefined : questionText(row.answer, "answer");
+  const answeredAt = optionalTimestamp(row.answered_at, "answeredAt");
+  const askedAt = timestamp(String(row.asked_at), "askedAt");
+  if (status === "unanswered" && (answer !== undefined || answeredAt !== undefined)) {
+    throw new StateStoreError("database contains an unanswered question with an answer");
+  }
+  if (status === "answered" && (answer === undefined || answeredAt === undefined)) {
+    throw new StateStoreError("database contains an answered question without an answer");
+  }
+  return {
+    questionId: requiredText(row.question_id, "questionId"),
+    workerId: requiredText(row.worker_id, "question workerId"),
+    issueIdentifier: requiredText(row.issue_identifier, "question issueIdentifier"),
+    question: questionText(row.question, "question"),
+    askedAt,
+    status,
+    ...(answer === undefined ? {} : { answer }),
+    ...(answeredAt === undefined ? {} : { answeredAt }),
+  };
+}
+
 function toDbValue(value: unknown): unknown {
   return value === undefined ? null : value;
 }
@@ -193,7 +231,7 @@ export class WorkerStateStore {
             project TEXT,
             repository TEXT,
             mapping_version TEXT,
-            state TEXT NOT NULL CHECK (state IN ('queued','provisioning','running','awaiting-review','paused','recovering','stopped','failed','destroyed')),
+            state TEXT NOT NULL CHECK (state IN ('queued','provisioning','running','waiting_for_input','awaiting-review','paused','recovering','stopped','failed','destroyed')),
             reason TEXT,
             process_id INTEGER,
             session_name TEXT,
@@ -223,7 +261,81 @@ export class WorkerStateStore {
             occurred_at TEXT NOT NULL
           );
           CREATE INDEX worker_transitions_worker_idx ON worker_transitions(worker_id, id);
-          INSERT INTO schema_migrations(version, applied_at) VALUES (1, CURRENT_TIMESTAMP);
+          CREATE TABLE questions (
+            question_id TEXT PRIMARY KEY NOT NULL,
+            worker_id TEXT NOT NULL REFERENCES workers(worker_id) ON DELETE CASCADE,
+            issue_identifier TEXT NOT NULL,
+            question TEXT NOT NULL,
+            asked_at TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('unanswered','answered')),
+            answer TEXT,
+            answered_at TEXT,
+            CHECK ((status = 'unanswered' AND answer IS NULL AND answered_at IS NULL) OR
+                   (status = 'answered' AND answer IS NOT NULL AND answered_at IS NOT NULL))
+          );
+          CREATE INDEX questions_worker_idx ON questions(worker_id, asked_at DESC, question_id DESC);
+          INSERT INTO schema_migrations(version, applied_at) VALUES (2, CURRENT_TIMESTAMP);
+        `);
+      } else if (version < 2) {
+        // SQLite cannot alter a CHECK constraint. Rebuild both related tables so
+        // existing workers and their complete transition history survive v1 -> v2.
+        this.#database.exec(`
+          CREATE TABLE workers_v2 (
+            worker_id TEXT PRIMARY KEY NOT NULL,
+            issue_identifier TEXT,
+            project TEXT,
+            repository TEXT,
+            mapping_version TEXT,
+            state TEXT NOT NULL CHECK (state IN ('queued','provisioning','running','waiting_for_input','awaiting-review','paused','recovering','stopped','failed','destroyed')),
+            reason TEXT,
+            process_id INTEGER,
+            session_name TEXT,
+            workspace_path TEXT,
+            branch TEXT,
+            base_commit TEXT,
+            commit_sha TEXT,
+            image_digest TEXT,
+            pull_request_number INTEGER,
+            correlation_id TEXT,
+            snapshot_id TEXT,
+            last_error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_transition_at TEXT NOT NULL
+          );
+          INSERT INTO workers_v2 SELECT * FROM workers;
+          CREATE TABLE worker_transitions_v2 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            worker_id TEXT NOT NULL REFERENCES workers_v2(worker_id) ON DELETE CASCADE,
+            from_state TEXT,
+            to_state TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            reason TEXT,
+            provider_evidence TEXT,
+            occurred_at TEXT NOT NULL
+          );
+          INSERT INTO worker_transitions_v2 SELECT * FROM worker_transitions;
+          DROP TABLE worker_transitions;
+          DROP TABLE workers;
+          ALTER TABLE workers_v2 RENAME TO workers;
+          ALTER TABLE worker_transitions_v2 RENAME TO worker_transitions;
+          CREATE INDEX workers_state_idx ON workers(state);
+          CREATE INDEX workers_project_idx ON workers(project);
+          CREATE INDEX worker_transitions_worker_idx ON worker_transitions(worker_id, id);
+          CREATE TABLE questions (
+            question_id TEXT PRIMARY KEY NOT NULL,
+            worker_id TEXT NOT NULL REFERENCES workers(worker_id) ON DELETE CASCADE,
+            issue_identifier TEXT NOT NULL,
+            question TEXT NOT NULL,
+            asked_at TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('unanswered','answered')),
+            answer TEXT,
+            answered_at TEXT,
+            CHECK ((status = 'unanswered' AND answer IS NULL AND answered_at IS NULL) OR
+                   (status = 'answered' AND answer IS NOT NULL AND answered_at IS NOT NULL))
+          );
+          CREATE INDEX questions_worker_idx ON questions(worker_id, asked_at DESC, question_id DESC);
+          INSERT INTO schema_migrations(version, applied_at) VALUES (2, CURRENT_TIMESTAMP);
         `);
       }
       return STATE_SCHEMA_VERSION;
@@ -302,6 +414,50 @@ export class WorkerStateStore {
     const worker = this.get(workerId);
     if (worker === undefined || !(RECOVERY_STATES as readonly WorkerState[]).includes(worker.state)) return undefined;
     return { ...worker, recoveryRequired: true };
+  }
+
+  /** Returns the most recently asked question for a worker, including answered metadata. */
+  public getQuestion(workerId: string): QuestionRecord | undefined {
+    const id = requiredText(workerId, "workerId");
+    const row = this.#database.prepare(
+      "SELECT * FROM questions WHERE worker_id = ? ORDER BY asked_at DESC, question_id DESC LIMIT 1",
+    ).get(id);
+    return row === undefined ? undefined : rowToQuestion(row);
+  }
+
+  /** Persists redacted question metadata and its answer without storing provider credentials. */
+  public saveQuestion(record: QuestionRecord): QuestionRecord {
+    const questionId = requiredText(record?.questionId, "questionId");
+    const workerId = requiredText(record?.workerId, "question workerId");
+    const issueIdentifier = requiredText(record?.issueIdentifier, "question issueIdentifier");
+    const question = questionText(record?.question, "question");
+    const askedAt = timestamp(record?.askedAt, "askedAt");
+    const status = record?.status;
+    if (status !== "unanswered" && status !== "answered") throw new StateStoreError("question status is invalid");
+    const answer = status === "answered" ? questionText(record?.answer, "answer") : undefined;
+    const answeredAt = status === "answered" ? timestamp(record?.answeredAt, "answeredAt") : undefined;
+    if (status === "unanswered" && (record?.answer !== undefined || record?.answeredAt !== undefined)) {
+      throw new StateStoreError("unanswered question cannot contain an answer");
+    }
+    const values = [questionId, workerId, issueIdentifier, question, askedAt, status, answer, answeredAt].map(toDbValue);
+    return this.transaction(() => {
+      this.getRequired(workerId);
+      this.#database.prepare(`INSERT INTO questions (${QUESTION_COLUMNS.join(",")}) VALUES (${QUESTION_COLUMNS.map(() => "?").join(",")})
+        ON CONFLICT(question_id) DO UPDATE SET worker_id = excluded.worker_id, issue_identifier = excluded.issue_identifier,
+        question = excluded.question, asked_at = excluded.asked_at, status = excluded.status,
+        answer = excluded.answer, answered_at = excluded.answered_at`).run(...values);
+      const saved = this.#database.prepare("SELECT * FROM questions WHERE question_id = ?").get(questionId);
+      if (saved === undefined) throw new StateStoreError("question could not be persisted");
+      return rowToQuestion(saved);
+    });
+  }
+
+  /** Adapter for QuestionWorkflow's durable metadata port. */
+  public questionMetadata(): QuestionMetadataPort {
+    return {
+      get: (workerId) => this.getQuestion(workerId),
+      save: (record) => this.saveQuestion(record),
+    };
   }
 
   public transition(workerId: string, toState: WorkerState, options: TransitionOptions = {}): WorkerRecord {

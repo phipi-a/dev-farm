@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./backup": {
+      "types": "./dist/backup/index.d.ts",
+      "import": "./dist/backup/index.js"
+    },
     "./agent": {
       "types": "./dist/agent/index.d.ts",
       "import": "./dist/agent/index.js"
@@ -46,6 +50,10 @@
       "types": "./dist/github/index.d.ts",
       "import": "./dist/github/index.js"
     },
+    "./git": {
+      "types": "./dist/git/index.d.ts",
+      "import": "./dist/git/index.js"
+    },
     "./linear": {
       "types": "./dist/linear/index.d.ts",
       "import": "./dist/linear/index.js"
@@ -66,6 +74,10 @@
       "types": "./dist/ports/index.d.ts",
       "import": "./dist/ports/index.js"
     },
+    "./process": {
+      "types": "./dist/process/index.d.ts",
+      "import": "./dist/process/index.js"
+    },
     "./question": {
       "types": "./dist/question/index.d.ts",
       "import": "./dist/question/index.js"
@@ -77,6 +89,10 @@
     "./review": {
       "types": "./dist/review/index.d.ts",
       "import": "./dist/review/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
     },
     "./security": {
       "types": "./dist/security/index.d.ts",

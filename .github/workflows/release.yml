@@ -22,18 +22,24 @@ jobs:
     name: build-release-packages
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - name: Check out the tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Audit production and development dependencies
+        run: npm audit --audit-level=high --ignore-scripts
       - name: Require one version across package artifacts
         shell: bash
         run: |
@@ -66,8 +72,12 @@ jobs:
             npm pack --workspace="$workspace" --pack-destination "$RUNNER_TEMP/package-archives"
           done
           sha256sum "$RUNNER_TEMP/package-archives"/*.tgz > "$RUNNER_TEMP/package-archives/SHA256SUMS"
+      - name: Attest package archives
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: ${{ runner.temp }}/package-archives/*.tgz
       - name: Upload release package archives
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-packages-${{ github.sha }}
           path: ${{ runner.temp }}/package-archives
@@ -80,7 +90,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out the tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
       - name: Exercise the versioned image inputs
@@ -88,6 +98,15 @@ jobs:
           IMAGE_TAG: dev-farm/pi-agent-base:release-${{ github.sha }}
           PI_VERSION: ${{ env.PI_VERSION }}
         run: IMAGE_VERSION="${GITHUB_REF_NAME#v}" docker/base-image/smoke.sh
+      - name: Scan the release image for high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: dev-farm/pi-agent-base:release-${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
 
   image:
     name: publish-base-image
@@ -102,11 +121,11 @@ jobs:
       image_digest: ${{ steps.publish.outputs.image_digest }}
     steps:
       - name: Check out the tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
       - name: Log in to GitHub Container Registry
         env:
           CR_PAT: ${{ secrets.GITHUB_TOKEN }}
@@ -128,6 +147,8 @@ jobs:
             --build-arg "IMAGE_VERSION=${RELEASE_VERSION#v}" \
             --build-arg "PI_VERSION=${PI_VERSION}" \
             --build-arg "GH_VERSION=${GH_VERSION}" \
+            --provenance=mode=max \
+            --sbom=true \
             --metadata-file "$metadata" \
             --push \
             docker/base-image
@@ -140,12 +161,12 @@ jobs:
             --arg commit "$GITHUB_SHA" \
             --arg pi "$PI_VERSION" \
             --arg gh "$GH_VERSION" \
-            '{image: $ref, digest: $digest, version: $version, sourceCommit: $commit, piVersion: $pi, githubCliVersion: $gh}' \
+            '{image: $ref, digest: $digest, version: $version, sourceCommit: $commit, piVersion: $pi, githubCliVersion: $gh, provenance: "oci-provenance", sbom: true}' \
             | tee "$RUNNER_TEMP/image-record.json"
           printf 'image_ref=%s\n' "$image_ref" >> "$GITHUB_OUTPUT"
           printf 'image_digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
       - name: Upload image record
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-image-record-${{ github.sha }}
           path: ${{ runner.temp }}/image-record.json
@@ -161,16 +182,16 @@ jobs:
       contents: write
     steps:
       - name: Check out the tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.ref }}
       - name: Download package archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-packages-${{ github.sha }}
           path: package-archives
       - name: Download image record
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-image-record-${{ github.sha }}
           path: image-record

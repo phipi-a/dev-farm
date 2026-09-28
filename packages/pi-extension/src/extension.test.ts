@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPiExtension, PI_TOOL_DEFINITIONS, type PiOrchestrator } from "./extension.js";
+import {
+  createPiExtension,
+  PI_TOOL_DEFINITIONS,
+  registerRuntimePiTools,
+  registerPiTools,
+  type PiOrchestrator,
+  type PiRegisteredTool,
+} from "./extension.js";
 
 class FakeOrchestrator implements PiOrchestrator {
   readonly calls: string[] = [];
@@ -122,4 +129,71 @@ test("returns a stable safe error when the adapter fails", async () => {
     tool: "ticket_status",
     error: { code: "orchestrator_error", message: "tool operation failed" },
   });
+});
+
+test("registers every tool through the Pi host surface", async () => {
+  const fake = new FakeOrchestrator();
+  const registered: PiRegisteredTool[] = [];
+  const host = { registerTool: (tool: PiRegisteredTool) => registered.push(tool) };
+  registerPiTools(host, fake);
+
+  assert.deepEqual(
+    registered.map((tool) => tool.name),
+    PI_TOOL_DEFINITIONS.map((tool) => tool.name),
+  );
+  assert.equal(registered[0]?.parameters, PI_TOOL_DEFINITIONS[0]?.inputSchema);
+
+  const result = await registered
+    .find((tool) => tool.name === "ticket_start")!
+    .execute("call-1", { ticketId: "DEV-36" }, new AbortController().signal, () => {}, {});
+  assert.deepEqual(result, {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          status: "running",
+          accessToken: "[REDACTED]",
+          log: "authorization: bearer [REDACTED] token=[REDACTED]",
+        }),
+      },
+    ],
+    details: {
+      ok: true,
+      tool: "ticket_start",
+      data: {
+        status: "running",
+        accessToken: "[REDACTED]",
+        log: "authorization: bearer [REDACTED] token=[REDACTED]",
+      },
+    },
+  });
+
+  const mergeResult = await registered
+    .find((tool) => tool.name === "ticket_merge")!
+    .execute("call-merge", { ticketId: "DEV-36" }, undefined, undefined, {});
+  assert.deepEqual(mergeResult.details, {
+    ok: false,
+    tool: "ticket_merge",
+    error: { code: "confirmation_required", message: "merge requires explicit confirmation" },
+  });
+  assert.deepEqual(fake.calls, ["start:DEV-36"]);
+});
+
+test("registers a runtime-created orchestrator without owning runtime lifecycle", async () => {
+  const fake = new FakeOrchestrator();
+  const registered: PiRegisteredTool[] = [];
+  registerRuntimePiTools(
+    { registerTool: (tool: PiRegisteredTool) => registered.push(tool) },
+    { orchestrator: fake },
+  );
+  await registered
+    .find((tool) => tool.name === "ticket_stop")!
+    .execute(
+      "call-2",
+      { ticketId: "DEV-36", confirm: true },
+      new AbortController().signal,
+      () => {},
+      {},
+    );
+  assert.deepEqual(fake.calls, ["stop"]);
 });

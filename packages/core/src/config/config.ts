@@ -1,10 +1,7 @@
 import { readFileSync } from "node:fs";
 
 /** Names of the only credentials that the worker runtime may receive. */
-export const RUNTIME_CREDENTIAL_NAMES = [
-  "LINEAR_API_TOKEN",
-  "GITHUB_TOKEN",
-] as const;
+export const RUNTIME_CREDENTIAL_NAMES = ["LINEAR_API_TOKEN", "GITHUB_TOKEN"] as const;
 
 export type RuntimeCredentialName = (typeof RUNTIME_CREDENTIAL_NAMES)[number];
 
@@ -56,6 +53,13 @@ export class ConfigValidationError extends Error {
   }
 }
 
+export class ProjectMappingError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "ProjectMappingError";
+  }
+}
+
 export class RuntimeCredentialError extends Error {
   public constructor(message: string) {
     // Callers provide only fixed messages and credential names, never values.
@@ -65,6 +69,14 @@ export class RuntimeCredentialError extends Error {
 }
 
 export type RuntimeCredentialValues = Partial<Record<RuntimeCredentialName, string>>;
+
+/** Read-only credential injection port used by provider adapters. */
+export interface CredentialProvider {
+  get(name: RuntimeCredentialName): string | undefined;
+}
+
+/** Alias for composition roots that name all injected dependencies as ports. */
+export type CredentialPort = CredentialProvider;
 
 const DEFAULT_CREDENTIALS: CredentialConfig = {
   linear: "LINEAR_API_TOKEN",
@@ -81,11 +93,7 @@ function addIssue(issues: ConfigIssue[], path: string, message: string): void {
   issues.push({ path, message });
 }
 
-function requiredString(
-  value: unknown,
-  path: string,
-  issues: ConfigIssue[],
-): string | undefined {
+function requiredString(value: unknown, path: string, issues: ConfigIssue[]): string | undefined {
   if (typeof value !== "string" || value.trim().length === 0) {
     addIssue(issues, path, "must be a non-empty string");
     return undefined;
@@ -135,12 +143,19 @@ function parseProject(
   }
   if (
     defaultBranch !== undefined &&
-    (defaultBranch.startsWith("/") || defaultBranch.endsWith("/") ||
-      defaultBranch.includes("..") || /[~^:?*[\\\s\u0000-\u001f\u007f]/.test(defaultBranch))
+    (defaultBranch.startsWith("/") ||
+      defaultBranch.endsWith("/") ||
+      defaultBranch.includes("..") ||
+      /[~^:?*[\\\s\u0000-\u001f\u007f]/.test(defaultBranch))
   ) {
     addIssue(issues, `${path}.defaultBranch`, "must be a valid branch name");
   }
-  if (name === undefined || linearTeam === undefined || githubRepo === undefined || defaultBranch === undefined) {
+  if (
+    name === undefined ||
+    linearTeam === undefined ||
+    githubRepo === undefined ||
+    defaultBranch === undefined
+  ) {
     return undefined;
   }
   return { name, linearTeam, githubRepo, defaultBranch };
@@ -167,9 +182,14 @@ function parseProjects(value: unknown, issues: ConfigIssue[]): ProjectConfig[] |
   }
 
   const names = new Set<string>();
+  const linearTeams = new Set<string>();
   for (const project of projects) {
     if (names.has(project.name)) addIssue(issues, "projects", "project names must be unique");
     names.add(project.name);
+    if (linearTeams.has(project.linearTeam)) {
+      addIssue(issues, "projects", "linear team mappings must be unique");
+    }
+    linearTeams.add(project.linearTeam);
   }
   return projects;
 }
@@ -182,21 +202,34 @@ function parsePortRange(value: unknown, issues: ConfigIssue[]): PortRange | unde
   checkUnknownKeys(value, ["start", "end"], "portRange", issues);
   const start = value.start;
   const end = value.end;
-  for (const [name, port] of [["start", start], ["end", end]] as const) {
+  for (const [name, port] of [
+    ["start", start],
+    ["end", end],
+  ] as const) {
     if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65535) {
       addIssue(issues, `portRange.${name}`, "must be an integer from 1 to 65535");
     }
   }
   if (
-    typeof start === "number" && Number.isInteger(start) &&
-    typeof end === "number" && Number.isInteger(end) && start > end
+    typeof start === "number" &&
+    Number.isInteger(start) &&
+    typeof end === "number" &&
+    Number.isInteger(end) &&
+    start > end
   ) {
     addIssue(issues, "portRange", "start must not be greater than end");
   }
   if (
-    typeof start !== "number" || !Number.isInteger(start) || start < 1 || start > 65535 ||
-    typeof end !== "number" || !Number.isInteger(end) || end < 1 || end > 65535
-  ) return undefined;
+    typeof start !== "number" ||
+    !Number.isInteger(start) ||
+    start < 1 ||
+    start > 65535 ||
+    typeof end !== "number" ||
+    !Number.isInteger(end) ||
+    end < 1 ||
+    end > 65535
+  )
+    return undefined;
   return { start, end };
 }
 
@@ -237,7 +270,11 @@ export function validateConfig(input: unknown): FarmConfig {
   parseCredentials(input.credentials, issues);
 
   if (dockerPrefix !== undefined && !/^[a-z0-9][a-z0-9_.-]*$/.test(dockerPrefix)) {
-    addIssue(issues, "dockerPrefix", "must start with a lowercase letter or digit and contain only [a-z0-9_.-]");
+    addIssue(
+      issues,
+      "dockerPrefix",
+      "must start with a lowercase letter or digit and contain only [a-z0-9_.-]",
+    );
   }
   if (baselineImage !== undefined && /[\s\u0000-\u001f\u007f]/.test(baselineImage)) {
     addIssue(issues, "baselineImage", "must not contain whitespace or control characters");
@@ -247,9 +284,20 @@ export function validateConfig(input: unknown): FarmConfig {
     (baselineImage.includes("://") ||
       (baselineImage.includes("@") && !/@sha256:[a-f0-9]{64}$/.test(baselineImage)))
   ) {
-    addIssue(issues, "baselineImage", "must be a container image reference, not a URL or credential-bearing reference");
+    addIssue(
+      issues,
+      "baselineImage",
+      "must be a container image reference, not a URL or credential-bearing reference",
+    );
   }
-  if (issues.length > 0 || projects === undefined || statePath === undefined || dockerPrefix === undefined || baselineImage === undefined || portRange === undefined) {
+  if (
+    issues.length > 0 ||
+    projects === undefined ||
+    statePath === undefined ||
+    dockerPrefix === undefined ||
+    baselineImage === undefined ||
+    portRange === undefined
+  ) {
     throw new ConfigValidationError(issues);
   }
   return {
@@ -260,6 +308,34 @@ export function validateConfig(input: unknown): FarmConfig {
     baselineImage,
     credentials: DEFAULT_CREDENTIALS,
   };
+}
+
+/**
+ * Resolve an explicitly configured project mapping. No fallback project or
+ * repository inference is permitted when a team is not mapped.
+ */
+export function projectForLinearTeam(
+  projects: readonly ProjectConfig[],
+  linearTeam: string,
+): ProjectConfig {
+  if (typeof linearTeam !== "string" || !linearTeam.trim()) {
+    throw new ProjectMappingError("linear team must be a non-empty key");
+  }
+  const matches = projects.filter((project) => project.linearTeam === linearTeam);
+  if (matches.length !== 1) {
+    throw new ProjectMappingError("linear team is not mapped to exactly one project");
+  }
+  return matches[0];
+}
+
+/** Validate that a provider target is the exact configured repository mapping. */
+export function validateProjectMapping(
+  project: ProjectConfig,
+  target: { readonly linearTeam: string; readonly githubRepo: string },
+): void {
+  if (project.linearTeam !== target.linearTeam || project.githubRepo !== target.githubRepo) {
+    throw new ProjectMappingError("provider target does not match the configured project mapping");
+  }
 }
 
 /** Parse JSON text or validate a parsed config without exposing its values in errors. */
@@ -281,7 +357,9 @@ export function loadConfigFile(path: string): FarmConfig {
     return loadConfig(readFileSync(path, "utf8"));
   } catch (error) {
     if (error instanceof ConfigValidationError) throw error;
-    throw new ConfigValidationError([{ path: "config", message: "could not read configuration file" }]);
+    throw new ConfigValidationError([
+      { path: "config", message: "could not read configuration file" },
+    ]);
   }
 }
 
@@ -306,7 +384,7 @@ function validateCredentialValues(input: unknown): RuntimeCredentialValues {
 }
 
 /** Opaque runtime credentials. JSON and inspection intentionally reveal no values. */
-export class RuntimeCredentials {
+export class RuntimeCredentials implements CredentialProvider {
   readonly #values: Readonly<RuntimeCredentialValues>;
 
   public constructor(input: RuntimeCredentialValues = {}) {

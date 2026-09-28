@@ -1,6 +1,7 @@
 export {
   RUNTIME_CREDENTIAL_NAMES,
   ConfigValidationError,
+  ProjectMappingError,
   RuntimeCredentialError,
   RuntimeCredentials,
   credentialsFromEnvironment,
@@ -8,11 +9,15 @@ export {
   loadConfig,
   loadConfigFile,
   serializeConfig,
+  projectForLinearTeam,
   validateConfig,
+  validateProjectMapping,
 } from "./config";
 export type {
   ConfigIssue,
   CredentialConfig,
+  CredentialPort,
+  CredentialProvider,
   FarmConfig,
   PortRange,
   ProjectConfig,

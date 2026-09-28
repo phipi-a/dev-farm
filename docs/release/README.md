@@ -32,16 +32,21 @@ workflow and require an explicit workflow change.
 
 1. `npm ci --ignore-scripts` uses the lockfile without executing dependency
    install scripts.
-2. `npm run ci` runs formatting, lint, type checking, and tests.
-3. All three workspaces are built and packed. The archives and SHA-256 list are
+2. `npm audit --audit-level=high` blocks known high and critical dependency
+   vulnerabilities before validation.
+3. `npm run ci` runs formatting, lint, type checking, and tests.
+4. All three workspaces are built and packed. The archives and SHA-256 list are
    retained as a short-lived CI artifact.
-4. `docker/base-image/smoke.sh` builds the image without credentials and checks
+5. `docker/base-image/smoke.sh` builds the image without credentials and checks
    the non-root user, writable workspace, pinned tools, and Pi health command.
+   Trivy blocks high and critical fixed vulnerabilities in the resulting image.
 
-`.github/workflows/release.yml` repeats package validation, requires exact
-version alignment, runs the image smoke check, pushes only the versioned image
-to GHCR, and creates or updates a GitHub Release. A release is not considered
-complete until the release job has attached:
+`.github/workflows/release.yml` repeats package validation and the dependency
+audit, requires exact version alignment, runs the image smoke and vulnerability
+checks, pushes only the versioned image to GHCR, and creates or updates a GitHub
+Release. Package archives receive GitHub artifact attestations, and the image
+build publishes OCI provenance and an SBOM alongside the image. A release is not
+considered complete until the release job has attached:
 
 - the three `.tgz` archives and `SHA256SUMS`;
 - `image-record.json`, containing the image reference, immutable digest, source
@@ -143,9 +148,8 @@ rerun the tagged workflow; never publish a second mutable tag.
 - Treat GitHub Actions logs and retained artifacts as potentially readable by
   repository collaborators. Keep retention bounded and rotate a credential if
   exposure is suspected.
-- Pin third-party action references to reviewed commit SHAs when this workflow
-  is enabled in a production repository; the initial workflow uses major
-  action labels for readability and this remains a supply-chain hardening gap.
+- Third-party GitHub Actions are referenced by reviewed commit SHA (with a
+  version comment); update a SHA only as part of a dependency review.
 
 ## Integration assumptions and gaps
 
@@ -154,9 +158,12 @@ rerun the tagged workflow; never publish a second mutable tag.
   name is `ghcr.io/<owner>/dev-farm/pi-agent-base`.
 - Branch protection must require the CI jobs before a release tag can be
   created. Tag creation itself remains a human-authorized action.
-- No npm registry, signing key, provenance/attestation service, vulnerability
-  scanner, or persistent worker-state store is configured here. Adding any of
-  these requires an explicit secret and permissions review.
+- npm audit and the pinned Trivy action require network access to their
+  vulnerability databases in GitHub Actions; normal local tests remain
+  credential-free. GitHub artifact attestations require the repository's
+  artifact-attestation feature, and OCI provenance/SBOM publication requires
+  GHCR support. No signing key or persistent worker-state store is configured
+  here.
 - The current image smoke check requires a Docker-compatible runner and network
   access to the pinned Debian, npm, Pi, and GitHub CLI inputs; it does not need
   project credentials.
