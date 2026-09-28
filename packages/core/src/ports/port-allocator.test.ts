@@ -71,3 +71,24 @@ test("preview URLs are optional and do not require a listener", () => {
   assert.equal(buildPreviewUrl(4500, { host: "localhost" }), "http://localhost:4500");
   assert.equal(buildPreviewUrl(4500, { host: "::1", protocol: "https" }, "preview"), "https://[::1]:4500/preview");
 });
+
+test("preview host validation accepts hostnames and IPv6 literals only", () => {
+  for (const host of ["localhost", "preview.example.test", "127.0.0.1", "::1", "[2001:db8::1]"]) {
+    assert.doesNotThrow(() => buildPreviewUrl(4600, { host }));
+  }
+
+  for (const host of [
+    "user:password@example.test",
+    "example.test:4601",
+    "[::1]:4601",
+    "example.test/preview",
+    "example.test?query=1",
+    "example.test#fragment",
+    "[::1",
+    "::1]",
+    "[example.test]",
+    "https://user:password@example.test",
+  ]) {
+    assert.throws(() => buildPreviewUrl(4600, { host }), PortAllocationError);
+  }
+});

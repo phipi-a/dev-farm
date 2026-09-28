@@ -69,6 +69,38 @@ function validateWorkerId(workerId: string): void {
   }
 }
 
+function validatePreviewHost(host: string): void {
+  const invalidHost = (): never => {
+    throw new PortAllocationError(
+      "preview.host must be a hostname without credentials, a port, or a path",
+    );
+  };
+
+  // Do not let URL silently trim or reinterpret URL-shaped input before it is
+  // validated as a host-only value.
+  if (host !== host.trim() || /[\u0000-\u001f\u007f]/.test(host)) invalidHost();
+  if (/[\/?#@\\]/.test(host)) invalidHost();
+
+  let authority = host;
+  if (host.startsWith("[")) {
+    if (!host.endsWith("]") || host.slice(1, -1).includes("[")) invalidHost();
+  } else {
+    if (host.includes("[") || host.includes("]")) invalidHost();
+    // A colon is only valid as part of an IPv6 literal. Bracketing the value
+    // makes URL reject ports, credentials, and non-IPv6 colon-delimited input.
+    if (host.includes(":")) authority = `[${host}]`;
+  }
+
+  try {
+    const url = new URL(`http://${authority}`);
+    if (url.username !== "" || url.password !== "" || url.port !== "" || url.pathname !== "/") {
+      invalidHost();
+    }
+  } catch {
+    invalidHost();
+  }
+}
+
 function validatePreview(preview: PreviewOptions | undefined): PreviewOptions | undefined {
   if (preview === undefined) return undefined;
   if (typeof preview.host !== "string" || preview.host.trim().length === 0) {
@@ -80,6 +112,7 @@ function validatePreview(preview: PreviewOptions | undefined): PreviewOptions | 
   if (preview.host.includes("/") || preview.host.includes("?") || preview.host.includes("#")) {
     throw new PortAllocationError("preview.host must be a hostname without a path");
   }
+  validatePreviewHost(preview.host);
   return { ...preview };
 }
 
