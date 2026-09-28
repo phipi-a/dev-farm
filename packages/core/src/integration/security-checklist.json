@@ -1,0 +1,66 @@
+{
+  "ticket": "DEV-24",
+  "scope": "credential-free integration security boundaries",
+  "checks": [
+    {
+      "id": "mounts.no-docker-socket",
+      "kind": "automated",
+      "status": "covered",
+      "evidence": "security-boundaries.test.ts rejects Docker socket mounts before fake Docker create"
+    },
+    {
+      "id": "mounts.no-host-home",
+      "kind": "automated",
+      "status": "covered",
+      "evidence": "security-boundaries.test.ts rejects /home and /root mounts before fake Docker create"
+    },
+    {
+      "id": "identity.non-root",
+      "kind": "automated",
+      "status": "covered",
+      "evidence": "manager boundary test rejects uid 0"
+    },
+    {
+      "id": "capabilities.allowlist",
+      "kind": "automated",
+      "status": "covered",
+      "evidence": "manager boundary test rejects CAP_SYS_ADMIN"
+    },
+    {
+      "id": "network.restricted",
+      "kind": "automated",
+      "status": "covered",
+      "evidence": "manager boundary test rejects host networking"
+    },
+    {
+      "id": "resources.deterministic",
+      "kind": "automated",
+      "status": "covered",
+      "evidence": "parallel worker test asserts exact memory, CPU, PID, network, and user options"
+    },
+    {
+      "id": "workers.separated",
+      "kind": "automated",
+      "status": "covered",
+      "evidence": "parallel start gate asserts distinct IDs, names, and workspace volumes"
+    },
+    {
+      "id": "diagnostics.secret-redaction",
+      "kind": "automated",
+      "status": "covered",
+      "evidence": "synthetic sentinel is absent from redacted validation diagnostics"
+    }
+  ],
+  "manualChecks": [
+    {
+      "id": "host.realpath-symlink-boundary",
+      "status": "unverified",
+      "action": "Verify the production adapter resolves bind-mount and workspace paths with realpath before policy validation."
+    },
+    {
+      "id": "host.docker-daemon-boundary",
+      "status": "unverified",
+      "action": "On a disposable host, inspect a real worker with docker inspect and confirm no socket/home mounts, non-root identity, capabilities, limits, and restricted network."
+    }
+  ]
+}

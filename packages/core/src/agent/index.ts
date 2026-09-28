@@ -1,0 +1,25 @@
+export {
+  WorkerAgent,
+  WorkerAgentBusyError,
+  WorkerAgentError,
+  WorkerAgentValidationError,
+  buildPiCommand,
+  buildWorkerPrompt,
+  redactWorkerText,
+} from "./worker-agent";
+export type {
+  WorkerAgentClockPort,
+  WorkerAgentFailure,
+  WorkerAgentFailureKind,
+  WorkerAgentProcessPort,
+  WorkerAgentProcessSpec,
+  WorkerAgentRequest,
+  WorkerAgentResult,
+  WorkerAgentRun,
+  WorkerAgentSignal,
+  WorkerAgentTmuxPort,
+  WorkerIssue,
+  WorkerProcess,
+  WorkerProcessExit,
+  WorkerRepository,
+} from "./worker-agent";
