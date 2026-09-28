@@ -33,6 +33,17 @@ test("find-or-create creates a PR when no matching PR exists", async () => {
   assert.equal(github.createCalls, 1);
 });
 
+test("rejects unsafe source and target refs before creating a PR", async () => {
+  for (const field of ["sourceBranch", "targetBranch"] as const) {
+    const github = new FixtureGitHubTransport();
+    await assert.rejects(
+      findOrCreatePullRequest(github, { ...intent, [field]: " feature/main\n" }),
+      /valid Git ref/,
+    );
+    assert.equal(github.createCalls, 0);
+  }
+});
+
 test("find-or-create recovers when creation succeeded before a timeout", async () => {
   const github = new FixtureGitHubTransport();
   github.failCreate = true;
@@ -84,6 +95,18 @@ test("rejects an update that makes source and target branches equal", async () =
     /source and target branches must differ/,
   );
   assert.equal(github.updateCalls, 0);
+});
+
+test("rejects unsafe source and target refs before updating a PR", async () => {
+  for (const field of ["sourceBranch", "targetBranch"] as const) {
+    const github = new FixtureGitHubTransport();
+    const existing = fixturePullRequest();
+    await assert.rejects(
+      updatePullRequest(github, existing, { [field]: "feature/main.lock" }),
+      /valid Git ref/,
+    );
+    assert.equal(github.updateCalls, 0);
+  }
 });
 
 test("rejects an intent that targets its own source branch", async () => {

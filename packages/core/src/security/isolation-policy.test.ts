@@ -22,6 +22,21 @@ test("allows a non-root worker with bounded resources and an isolated workspace"
   assert.deepEqual(result.failures, []);
 });
 
+test("blocks system mount descendants after path canonicalization", () => {
+  for (const source of ["/etc/shadow", "/etc/passwd", "/proc/1/root", "//etc/shadow"]) {
+    const result = validateWorkerIsolation({
+      ...validRequest,
+      mounts: [{ source, destination: "/workspace" }],
+    });
+    assert.equal(result.valid, false, source);
+    assert.equal(
+      result.failures.some(({ code }) => code === "forbidden-mount"),
+      true,
+      source,
+    );
+  }
+});
+
 test("blocks Docker socket, host-home, privileged, root, and unapproved capability settings", () => {
   const result = validateWorkerIsolation({
     ...validRequest,
@@ -96,5 +111,12 @@ test("blocking assertion exposes failures without exposing secret values", () =>
     apiKey: "[REDACTED]",
     visible: "ok",
   });
+  const credentialLog = redactSecrets({
+    credentials: [{ name: "github-token", value: "super-secret-token" }],
+  });
+  assert.deepEqual(credentialLog, {
+    credentials: [{ name: "github-token", value: "[REDACTED]" }],
+  });
+  assert.equal(JSON.stringify(credentialLog).includes("super-secret-token"), false);
   assert.throws(() => assertWorkerIsolation(request), WorkerIsolationValidationError);
 });

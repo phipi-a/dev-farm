@@ -18,6 +18,20 @@ test("does not allow input separators to become ref separators", () => {
   assert.equal(isSafeBranchName("linear/dev@{6}"), false);
 });
 
+test("rejects Git ref edge cases", () => {
+  for (const name of [
+    " feature/main",
+    "feature/main ",
+    "feature/main\nnext",
+    "feature/..hidden",
+    "feature/main.lock",
+    "feature/main~backup",
+  ]) {
+    assert.equal(isSafeBranchName(name), false, name);
+  }
+  assert.equal(isSafeBranchName("Feature/Release-1"), true);
+});
+
 test("truncates only the slug and preserves the issue identity", () => {
   const branch = generateBranchName("DEV-6", "a very long issue title", { maxLength: 24 });
   assert.equal(branch, "linear/dev-6-a-very-long");

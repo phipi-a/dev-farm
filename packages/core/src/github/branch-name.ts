@@ -19,11 +19,7 @@ function cleanPart(value: string): string {
 }
 
 function cleanPrefix(value: string): string {
-  return value
-    .split("/")
-    .map(cleanPart)
-    .filter(Boolean)
-    .join("/");
+  return value.split("/").map(cleanPart).filter(Boolean).join("/");
 }
 
 /**
@@ -72,23 +68,41 @@ export function generateBranchName(
 export const branchNameForIssue = generateBranchName;
 
 /**
- * Checks the subset of Git ref rules relied upon by this boundary.
- * It intentionally rejects punctuation that can be meaningful to shell tools.
+ * Checks Git's ref-format rules needed at the provider boundary. Generated
+ * names remain deliberately more conservative, while direct refs may use any
+ * punctuation that Git permits.
  */
 export function isSafeBranchName(name: string): boolean {
-  if (!name || name.length > 255 || /[^a-z0-9._/-]/.test(name)) {
+  if (typeof name !== "string" || !name || name.length > 255 || name.trim() !== name) {
+    return false;
+  }
+  // These are forbidden by git-check-ref-format. Keep the check explicit so
+  // direct provider inputs cannot smuggle control characters or ref syntax.
+  if (
+    /[\u0000-\u0020\u007f]/u.test(name) ||
+    ["~", "^", ":", "?", "*", "[", "\\"].some((character) => name.includes(character))
+  ) {
     return false;
   }
   if (
     name.startsWith("/") ||
     name.endsWith("/") ||
-    name.startsWith(".") ||
     name.endsWith(".") ||
     name.includes("..") ||
     name.includes("//") ||
-    name.includes("@{")
+    name.includes("@{") ||
+    name === "@"
   ) {
     return false;
   }
-  return name.split("/").every((part) => part.length > 0 && part !== "." && part !== "..");
+  return name
+    .split("/")
+    .every(
+      (part) =>
+        part.length > 0 &&
+        part !== "." &&
+        part !== ".." &&
+        !part.startsWith(".") &&
+        !part.toLowerCase().endsWith(".lock"),
+    );
 }
