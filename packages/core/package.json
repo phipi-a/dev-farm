@@ -38,6 +38,10 @@
       "types": "./dist/linear/index.d.ts",
       "import": "./dist/linear/index.js"
     },
+    "./merge": {
+      "types": "./dist/merge/index.d.ts",
+      "import": "./dist/merge/index.js"
+    },
     "./orchestrator": {
       "types": "./dist/orchestrator/index.d.ts",
       "import": "./dist/orchestrator/index.js"

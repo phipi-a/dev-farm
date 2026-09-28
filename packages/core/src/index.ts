@@ -29,6 +29,35 @@ export type {
 } from "./config/index";
 export * from "./github/index";
 export * from "./linear/index";
+export * from "./merge/workflow";
+export {
+  MergeGateError,
+  MergeProviderError,
+  MergeValidationError,
+  MergeWorkflowError,
+} from "./merge/models";
+export type {
+  MergeAuditOutcome,
+  MergeAuditPort,
+  MergeAuditRecord,
+  MergeBaselinePort,
+  MergeCaller,
+  MergeCleanupPort,
+  MergeConfirmation,
+  MergeGate,
+  MergeInspection,
+  MergeLifecycleInput,
+  MergeLinearInput,
+  MergeLinearPort,
+  MergeProviderMergeInput,
+  MergeProviderPort,
+  MergeProviderResult,
+  MergePullRequestRef,
+  MergeRequest,
+  MergeResult,
+  MergeSideEffectResult,
+  MergeSideEffectState,
+} from "./merge/models";
 export * from "./orchestrator/index";
 export * from "./parallel/index";
 export * from "./ports/index";
