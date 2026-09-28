@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { findOrCreatePullRequest } from "./pull-request";
+import { findOrCreatePullRequest, updatePullRequest } from "./pull-request";
 import { fixturePullRequest, fixtureRepository, FixtureGitHubTransport } from "./fixtures";
 
 const intent = {
@@ -42,6 +42,48 @@ test("find-or-create recovers when creation succeeded before a timeout", async (
   assert.equal(result.number, 42);
   assert.equal(github.createCalls, 1);
   assert.equal(github.pullRequests.length, 1);
+});
+
+test("updates PR metadata through the injected transport", async () => {
+  const github = new FixtureGitHubTransport();
+  const existing = fixturePullRequest({ headSha: "abc123" });
+  github.pullRequests.push(existing);
+
+  const result = await updatePullRequest(github, existing, {
+    title: "DEV-6: Add callback (follow-up)",
+    body: "Updated after review.",
+    sourceBranch: "linear/dev-6-follow-up",
+    targetBranch: "develop",
+  });
+
+  assert.equal(result, existing);
+  assert.equal(existing.title, "DEV-6: Add callback (follow-up)");
+  assert.equal(existing.body, "Updated after review.");
+  assert.equal(existing.sourceBranch, "linear/dev-6-follow-up");
+  assert.equal(existing.targetBranch, "develop");
+  assert.equal(existing.headSha, "abc123");
+  assert.equal(github.updateCalls, 1);
+});
+
+test("does not issue a mutation for an empty PR update", async () => {
+  const github = new FixtureGitHubTransport();
+  const existing = fixturePullRequest();
+
+  const result = await updatePullRequest(github, existing, {});
+
+  assert.equal(result, existing);
+  assert.equal(github.updateCalls, 0);
+});
+
+test("rejects an update that makes source and target branches equal", async () => {
+  const github = new FixtureGitHubTransport();
+  const existing = fixturePullRequest();
+
+  await assert.rejects(
+    updatePullRequest(github, existing, { targetBranch: existing.sourceBranch }),
+    /source and target branches must differ/,
+  );
+  assert.equal(github.updateCalls, 0);
 });
 
 test("rejects an intent that targets its own source branch", async () => {

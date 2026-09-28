@@ -5,7 +5,11 @@ import {
   PullRequestStatus,
   Repository,
 } from "./models";
-import { CreatePullRequestInput, GitHubTransport } from "./transports";
+import {
+  CreatePullRequestInput,
+  GitHubTransport,
+  UpdatePullRequestInput,
+} from "./transports";
 
 export const fixtureRepository: Repository = {
   owner: "acme",
@@ -29,6 +33,7 @@ export function fixturePullRequest(overrides: Partial<PullRequest> = {}): PullRe
 export class FixtureGitHubTransport implements GitHubTransport {
   readonly pullRequests: PullRequest[] = [];
   createCalls = 0;
+  updateCalls = 0;
   failCreate = false;
 
   async findPullRequest(ref: PullRequestRef): Promise<PullRequest | undefined> {
@@ -55,10 +60,28 @@ export class FixtureGitHubTransport implements GitHubTransport {
     return pullRequest;
   }
 
+  async updatePullRequest(input: UpdatePullRequestInput): Promise<PullRequest> {
+    this.updateCalls += 1;
+    const pullRequest = this.pullRequests.find(
+      (candidate) =>
+        candidate.repository.owner === input.repository.owner &&
+        candidate.repository.name === input.repository.name &&
+        candidate.number === input.number,
+    );
+    if (!pullRequest) {
+      throw new Error(`pull request ${input.number} was not found`);
+    }
+    Object.assign(pullRequest, input);
+    return pullRequest;
+  }
+
   async getPullRequestStatus(_ref: PullRequestRef): Promise<PullRequestStatus> {
+    const pullRequest = await this.findPullRequest(_ref);
     return {
-      state: "open",
+      state: pullRequest?.state ?? "open",
       ci: await this.getCiStatus(_ref),
+      headSha: pullRequest?.headSha,
+      reviewState: pullRequest?.reviewState,
     };
   }
 

@@ -22,6 +22,13 @@ export interface Commit {
 
 export type PullRequestState = "open" | "closed" | "merged";
 
+export type PullRequestReviewState =
+  | "pending"
+  | "approved"
+  | "changes_requested"
+  | "dismissed"
+  | "unknown";
+
 export interface PullRequest {
   repository: Repository;
   number: number;
@@ -31,7 +38,9 @@ export interface PullRequest {
   targetBranch: string;
   state: PullRequestState;
   url?: string;
+  /** The commit currently presented for review. */
   headSha?: string;
+  reviewState?: PullRequestReviewState;
 }
 
 export type CheckState =
@@ -47,6 +56,8 @@ export type CheckState =
 export interface CheckStatus {
   name: string;
   state: CheckState;
+  /** Set when the provider identifies this check as required. */
+  required?: boolean;
   description?: string;
   url?: string;
   startedAt?: string;
@@ -58,12 +69,18 @@ export type CombinedStatusState = "pending" | "success" | "failure" | "error" | 
 export interface CiStatus {
   state: CombinedStatusState;
   checks: readonly CheckStatus[];
+  /** Results for the checks required by branch protection. */
+  requiredChecks?: readonly CheckStatus[];
   updatedAt?: string;
 }
 
 export interface PullRequestStatus {
   state: PullRequestState;
   ci: CiStatus;
+  /** Review state for the current head; this is not merge authorization. */
+  reviewState?: PullRequestReviewState;
+  /** The head SHA to which the review and check results apply. */
+  headSha?: string;
   mergeable?: boolean;
 }
 
