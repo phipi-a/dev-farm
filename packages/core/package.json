@@ -14,6 +14,14 @@
       "types": "./dist/agent/index.d.ts",
       "import": "./dist/agent/index.js"
     },
+    "./baseline": {
+      "types": "./dist/baseline/index.d.ts",
+      "import": "./dist/baseline/index.js"
+    },
+    "./cleanup": {
+      "types": "./dist/cleanup/index.d.ts",
+      "import": "./dist/cleanup/index.js"
+    },
     "./config": {
       "types": "./dist/config/index.d.ts",
       "import": "./dist/config/index.js"

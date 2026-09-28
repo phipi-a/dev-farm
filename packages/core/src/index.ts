@@ -1,4 +1,6 @@
 export * from "./agent/index";
+export * from "./baseline/index";
+export * from "./cleanup/index";
 export * from "./docker/index";
 export * from "./e2e/index";
 export * from "./events/models";
