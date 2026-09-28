@@ -28,6 +28,7 @@ export type {
 } from "./config/index";
 export * from "./github/index";
 export * from "./linear/index";
+export * from "./orchestrator/index";
 export * from "./ports/index";
 export * from "./recovery/index";
 export * from "./security/index";

@@ -34,6 +34,10 @@
       "types": "./dist/linear/index.d.ts",
       "import": "./dist/linear/index.js"
     },
+    "./orchestrator": {
+      "types": "./dist/orchestrator/index.d.ts",
+      "import": "./dist/orchestrator/index.js"
+    },
     "./ports": {
       "types": "./dist/ports/index.d.ts",
       "import": "./dist/ports/index.js"
