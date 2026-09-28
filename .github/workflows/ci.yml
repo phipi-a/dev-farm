@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    name: packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run format, lint, typecheck, and tests
+        run: npm run ci
+      - name: Build package outputs
+        run: npm run build
+      - name: Validate package archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/package-archives"
+          mkdir -p "$output"
+          for workspace in @agent-farm/core @agent-farm/pi-extension @agent-farm/cli; do
+            npm pack --workspace="$workspace" --pack-destination "$output"
+          done
+          test "$(find "$output" -maxdepth 1 -type f -name '*.tgz' | wc -l)" -eq 3
+          sha256sum "$output"/*.tgz | tee "$output/SHA256SUMS"
+      - name: Upload package archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-archives-${{ github.sha }}
+          path: ${{ runner.temp }}/package-archives
+          if-no-files-found: error
+          retention-days: 14
+
+  image-smoke:
+    name: base-image-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Exercise the base image
+        env:
+          IMAGE_TAG: dev-farm/pi-agent-base:ci-${{ github.sha }}
+          IMAGE_VERSION: ci-${{ github.sha }}
+        run: docker/base-image/smoke.sh

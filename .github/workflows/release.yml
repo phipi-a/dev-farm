@@ -1,0 +1,212 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PI_VERSION: "0.87.1"
+  GH_VERSION: "2.101.0"
+
+jobs:
+  packages:
+    name: build-release-packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Require one version across package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          VERSION="$version" node <<'NODE'
+          const fs = require('node:fs');
+          const expected = process.env.VERSION;
+          const files = [
+            'package.json',
+            'packages/core/package.json',
+            'packages/pi-extension/package.json',
+            'packages/cli/package.json',
+          ];
+          const mismatches = files.filter((file) => JSON.parse(fs.readFileSync(file)).version !== expected);
+          if (mismatches.length > 0) {
+            console.error(`Release ${expected} is blocked: package versions do not match in ${mismatches.join(', ')}.`);
+            process.exit(1);
+          }
+          NODE
+      - name: Run the complete package validation
+        run: npm run ci
+      - name: Build and archive packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build
+          mkdir -p "$RUNNER_TEMP/package-archives"
+          for workspace in @agent-farm/core @agent-farm/pi-extension @agent-farm/cli; do
+            npm pack --workspace="$workspace" --pack-destination "$RUNNER_TEMP/package-archives"
+          done
+          sha256sum "$RUNNER_TEMP/package-archives"/*.tgz > "$RUNNER_TEMP/package-archives/SHA256SUMS"
+      - name: Upload release package archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packages-${{ github.sha }}
+          path: ${{ runner.temp }}/package-archives
+          if-no-files-found: error
+          retention-days: 30
+
+  image-smoke:
+    name: release-image-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Exercise the versioned image inputs
+        env:
+          IMAGE_TAG: dev-farm/pi-agent-base:release-${{ github.sha }}
+          PI_VERSION: ${{ env.PI_VERSION }}
+        run: IMAGE_VERSION="${GITHUB_REF_NAME#v}" docker/base-image/smoke.sh
+
+  image:
+    name: publish-base-image
+    needs: [packages, image-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{ steps.publish.outputs.image_ref }}
+      image_digest: ${{ steps.publish.outputs.image_digest }}
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        env:
+          CR_PAT: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$CR_PAT" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build and publish by immutable version tag
+        id: publish
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "$REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          image_ref="ghcr.io/${owner}/dev-farm/pi-agent-base:${RELEASE_VERSION#v}"
+          metadata="$RUNNER_TEMP/image-metadata.json"
+          docker buildx build \
+            --file docker/base-image/Dockerfile \
+            --tag "$image_ref" \
+            --build-arg "IMAGE_VERSION=${RELEASE_VERSION#v}" \
+            --build-arg "PI_VERSION=${PI_VERSION}" \
+            --build-arg "GH_VERSION=${GH_VERSION}" \
+            --metadata-file "$metadata" \
+            --push \
+            docker/base-image
+          digest="$(jq -er '.["containerimage.digest"]' "$metadata")"
+          test "$digest" != null
+          jq -n \
+            --arg ref "$image_ref" \
+            --arg digest "$digest" \
+            --arg version "${RELEASE_VERSION#v}" \
+            --arg commit "$GITHUB_SHA" \
+            --arg pi "$PI_VERSION" \
+            --arg gh "$GH_VERSION" \
+            '{image: $ref, digest: $digest, version: $version, sourceCommit: $commit, piVersion: $pi, githubCliVersion: $gh}' \
+            | tee "$RUNNER_TEMP/image-record.json"
+          printf 'image_ref=%s\n' "$image_ref" >> "$GITHUB_OUTPUT"
+          printf 'image_digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - name: Upload image record
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-image-record-${{ github.sha }}
+          path: ${{ runner.temp }}/image-record.json
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: record-release
+    needs: [packages, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Download package archives
+        uses: actions/download-artifact@v4
+        with:
+          name: release-packages-${{ github.sha }}
+          path: package-archives
+      - name: Download image record
+        uses: actions/download-artifact@v4
+        with:
+          name: release-image-record-${{ github.sha }}
+          path: image-record
+      - name: Create a secret-free release record
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          packages_json="$(for archive in package-archives/*.tgz; do
+            hash="$(sha256sum "$archive" | cut -d' ' -f1)"
+            jq -cn --arg file "$(basename "$archive")" --arg sha256 "$hash" '{file: $file, sha256: $sha256}'
+          done | jq -s '.')"
+          jq -n \
+            --arg tag "$GITHUB_REF_NAME" \
+            --arg version "$version" \
+            --arg commit "$GITHUB_SHA" \
+            --argjson packages "$packages_json" \
+            --slurpfile image image-record/image-record.json \
+            '{tag: $tag, version: $version, sourceCommit: $commit, packages: $packages, image: $image[0]}' \
+            > release-record.json
+          sha256sum package-archives/*.tgz > package-archives/SHA256SUMS
+          cat release-record.json
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" \
+              package-archives/*.tgz package-archives/SHA256SUMS \
+              image-record/image-record.json release-record.json CHANGELOG.md \
+              --clobber
+          else
+            gh release create "$tag" \
+              package-archives/*.tgz package-archives/SHA256SUMS \
+              image-record/image-record.json release-record.json CHANGELOG.md \
+              --title "$tag" --generate-notes
+          fi
