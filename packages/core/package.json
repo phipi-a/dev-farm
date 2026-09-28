@@ -10,25 +10,25 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./github": {
-      "types": "./dist/github/index.d.ts",
-      "import": "./dist/github/index.js"
+    "./agent": {
+      "types": "./dist/agent/index.d.ts",
+      "import": "./dist/agent/index.js"
     },
     "./config": {
       "types": "./dist/config/index.d.ts",
       "import": "./dist/config/index.js"
     },
-    "./security": {
-      "types": "./dist/security/index.d.ts",
-      "import": "./dist/security/index.js"
+    "./docker": {
+      "types": "./dist/docker/index.d.ts",
+      "import": "./dist/docker/index.js"
     },
-    "./tmux": {
-      "types": "./dist/tmux/index.d.ts",
-      "import": "./dist/tmux/index.js"
+    "./events": {
+      "types": "./dist/events/index.d.ts",
+      "import": "./dist/events/index.js"
     },
-    "./workspace": {
-      "types": "./dist/workspace/index.d.ts",
-      "import": "./dist/workspace/index.js"
+    "./github": {
+      "types": "./dist/github/index.d.ts",
+      "import": "./dist/github/index.js"
     },
     "./linear": {
       "types": "./dist/linear/index.d.ts",
@@ -37,6 +37,26 @@
     "./ports": {
       "types": "./dist/ports/index.d.ts",
       "import": "./dist/ports/index.js"
+    },
+    "./recovery": {
+      "types": "./dist/recovery/index.d.ts",
+      "import": "./dist/recovery/index.js"
+    },
+    "./security": {
+      "types": "./dist/security/index.d.ts",
+      "import": "./dist/security/index.js"
+    },
+    "./state": {
+      "types": "./dist/state/index.d.ts",
+      "import": "./dist/state/index.js"
+    },
+    "./tmux": {
+      "types": "./dist/tmux/index.d.ts",
+      "import": "./dist/tmux/index.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace/index.d.ts",
+      "import": "./dist/workspace/index.js"
     }
   },
   "files": [
