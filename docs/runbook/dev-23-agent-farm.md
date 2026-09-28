@@ -1,12 +1,18 @@
 # DEV-23 agent-farm operations runbook
 
-**Status: planned, not an implementation.** This runbook is a credential-free operating contract for DEV-23. At the commit used to write it, the repository contains no runtime, CLI, image definition, or service configuration. Consequently, every `dev-farm`/`pi` command below is **planned** until an implementation documents and tests that command. Do not treat the examples as evidence that a command exists.
+**Status: partial implementation; runtime operations planned.** This runbook is a credential-free operating contract for DEV-23. At this revision, the repository contains an implemented base-image definition and smoke validation, but no runtime, CLI, worker orchestration, or service configuration. Consequently, every `dev-farm` command and runbook-specific Pi launcher/session command below is **planned** until an implementation documents and tests that command. Do not treat the examples as evidence that a command exists.
 
 ## Status vocabulary
 
-- **Implemented** means present and verified in the repository. The only implemented prerequisite currently is the Git repository itself.
+- **Implemented** means present and verified in the repository. The current implemented image pieces are [`docker/base-image/Dockerfile`](../../docker/base-image/Dockerfile) and [`docker/base-image/smoke.sh`](../../docker/base-image/smoke.sh); they do not provide the worker runtime or its CLI.
 - **Planned** means the behavior and operator contract described here; it must not be advertised as available.
 - **Operator action** means a command an operator may run against an already-installed dependency (for example, `git` or `tmux`).
+
+| Area | Status | Evidence or boundary |
+| --- | --- | --- |
+| Base image definition and smoke validation | Implemented | [`Dockerfile`](../../docker/base-image/Dockerfile) defines the image; [`smoke.sh`](../../docker/base-image/smoke.sh) builds it and checks the non-root user and required tools. |
+| `dev-farm` CLI, worker runtime/orchestration, and Pi launcher | Planned | No implementation exposes these operations yet. |
+| Worker state, credential integration, service configuration, and backup | Planned | Requirements are described below but have no implementation. |
 
 No secret, token, cookie, private key, or real repository URL belongs in this document, shell history, an image, or a worker checkout.
 
@@ -149,7 +155,9 @@ A successful check proves only authentication, not that the identity is least pr
 
 ## 4. Image setup
 
-### 4.1 Planned image requirements
+### 4.1 Image requirements (partially implemented)
+
+The repository includes an image definition at [`docker/base-image/Dockerfile`](../../docker/base-image/Dockerfile) and a smoke check at [`docker/base-image/smoke.sh`](../../docker/base-image/smoke.sh). The Dockerfile defines a pinned base image, a non-root `dev` user, Pi and repository tooling, and a healthcheck; the smoke script builds the image and checks the user, workspace, and required tools. These are implemented image-build pieces, not a worker runtime or orchestrator.
 
 The worker image should be built from a pinned base digest and contain only the tools required by the mapped project. It should:
 
@@ -162,12 +170,12 @@ The worker image should be built from a pinned base digest and contain only the 
 - use an allow-listed outbound network policy for Linear, GitHub, package registries, and required CI endpoints;
 - emit logs that exclude environment values and secrets.
 
-The image definition is intentionally not added by this task. Do not mark image setup implemented until an image digest, build command, vulnerability scan, and runtime security test are checked into the appropriate implementation change.
+The checked-in Dockerfile and smoke script implement the image definition and build-smoke path. Do not mark the full image setup implemented until a built image digest, vulnerability scan, and runtime security test are recorded. This image functionality does not implement worker provisioning, runtime orchestration, or a `dev-farm image` CLI.
 
 ### 4.2 Planned image lifecycle
 
 ```text
-# Planned; examples do not imply a Dockerfile or CLI exists.
+# Planned; the Dockerfile exists, but no dev-farm image or worker CLI exists.
 dev-farm image build --source <approved-image-source>
 dev-farm image scan --digest <IMAGE_DIGEST>
 dev-farm image verify --digest <IMAGE_DIGEST>
@@ -318,7 +326,7 @@ If any check fails, leave the issue in `awaiting-review` or `paused`, record the
 
 ## 12. Known limitations and documentation gaps
 
-- **Implemented behavior is absent:** this baseline has no CLI, Pi launcher, image, worker state store, credential integration, backup implementation, or tmux orchestration. All operational commands in this runbook are planned.
+- **Runtime/orchestration behavior remains planned:** this revision has no `dev-farm` CLI, Pi launcher, worker state store, credential integration, backup implementation, service configuration, or tmux orchestration. The base-image definition and smoke script are implemented separately; all operational commands in this runbook remain planned.
 - The exact CLI name, flags, state persistence format, log redaction behavior, and exit codes are not specified by an implementation.
 - Linear credential granularity depends on the credential type and workspace policy; exact API scopes and mutation allow-lists remain to be verified.
 - GitHub permissions for CI/status reads and PR creation must be tested against the selected App/token model; branch-protection behavior is repository-specific.
@@ -330,4 +338,4 @@ If any check fails, leave the issue in `awaiting-review` or `paused`, record the
 
 ## Local reference check
 
-This document intentionally uses no repository-internal file links because no implementation files exist at the baseline. Its planned command references are collected in the sections above and are not executable references. Before release, run a Markdown heading/link check and verify every planned command against the actual CLI help output and integration tests.
+This document links to the implemented image files in `docker/base-image/`; its other command references are planned and are not executable references. Before release, run a Markdown heading/link check and verify every planned command against the actual CLI help output and integration tests.
