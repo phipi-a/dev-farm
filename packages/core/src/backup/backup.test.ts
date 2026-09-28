@@ -60,6 +60,21 @@ test("redacts authorization assignment and bearer header forms", () => {
   source.close();
 });
 
+test("redacts complete Basic and Digest authorization values", () => {
+  const source = sourceStore();
+  source.update("worker-a", {
+    lastError:
+      "Authorization: Basic basic-secret authorization=Digest username=alice, realm=private",
+  });
+  const manager = new BackupManager(source, { key });
+  const payload = manager.verify(
+    manager.create("worker-a", { snapshotId: "redaction-schemes" }),
+  ).payload;
+  assert.equal(payload.worker.lastError, "Authorization: [REDACTED] authorization=[REDACTED]");
+  assert.doesNotMatch(JSON.stringify(payload), /basic-secret|username=alice|realm=private/);
+  source.close();
+});
+
 test("rejects tampering and unsupported versions before restore", () => {
   const source = sourceStore();
   const manager = new BackupManager(source, { key });

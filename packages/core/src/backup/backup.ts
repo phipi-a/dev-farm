@@ -39,7 +39,7 @@ function text(value: string | undefined): string | undefined {
   // Snapshots intentionally contain no raw diagnostic output or credential-shaped values.
   return value
     .replace(
-      /(\bauthorization\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi,
+      /(\bauthorization\s*[:=]\s*)([\s\S]*?)(?=\s+\bauthorization\s*[:=]|$)/gi,
       "$1[REDACTED]",
     )
     .replace(
