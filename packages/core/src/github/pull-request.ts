@@ -1,3 +1,4 @@
+import { isSafeBranchName } from "./branch-name";
 import { PullRequest, PullRequestRef, Repository } from "./models";
 import {
   CreatePullRequestInput,
@@ -8,14 +9,22 @@ import {
 
 export interface PullRequestIntent extends CreatePullRequestInput {}
 
+function validateBranchRef(value: unknown, field: string): asserts value is string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`pull request ${field} must not be empty`);
+  }
+  if (!isSafeBranchName(value)) {
+    throw new Error(`pull request ${field} must be a valid Git ref`);
+  }
+}
+
 function validateIntent(intent: PullRequestIntent): void {
   const repository: Repository = intent.repository;
   if (!repository.owner.trim() || !repository.name.trim()) {
     throw new Error("pull request repository must have an owner and name");
   }
-  if (!intent.sourceBranch.trim() || !intent.targetBranch.trim()) {
-    throw new Error("pull request branches must not be empty");
-  }
+  validateBranchRef(intent.sourceBranch, "source branch");
+  validateBranchRef(intent.targetBranch, "target branch");
   if (intent.sourceBranch === intent.targetBranch) {
     throw new Error("pull request source and target branches must differ");
   }
@@ -99,19 +108,15 @@ export async function updatePullRequest(
   if (input.title !== undefined && !input.title.trim()) {
     throw new Error("pull request title must not be empty");
   }
-  if (input.sourceBranch !== undefined && !input.sourceBranch.trim()) {
-    throw new Error("pull request source branch must not be empty");
+  if (input.sourceBranch !== undefined) {
+    validateBranchRef(input.sourceBranch, "source branch");
   }
-  if (input.targetBranch !== undefined && !input.targetBranch.trim()) {
-    throw new Error("pull request target branch must not be empty");
+  if (input.targetBranch !== undefined) {
+    validateBranchRef(input.targetBranch, "target branch");
   }
   const sourceBranch = changes?.sourceBranch ?? inputOrCurrent.sourceBranch;
   const targetBranch = changes?.targetBranch ?? inputOrCurrent.targetBranch;
-  if (
-    sourceBranch !== undefined &&
-    targetBranch !== undefined &&
-    sourceBranch === targetBranch
-  ) {
+  if (sourceBranch !== undefined && targetBranch !== undefined && sourceBranch === targetBranch) {
     throw new Error("pull request source and target branches must differ");
   }
 

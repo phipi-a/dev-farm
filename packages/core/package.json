@@ -14,6 +14,22 @@
       "types": "./dist/github/index.d.ts",
       "import": "./dist/github/index.js"
     },
+    "./config": {
+      "types": "./dist/config/index.d.ts",
+      "import": "./dist/config/index.js"
+    },
+    "./security": {
+      "types": "./dist/security/index.d.ts",
+      "import": "./dist/security/index.js"
+    },
+    "./tmux": {
+      "types": "./dist/tmux/index.d.ts",
+      "import": "./dist/tmux/index.js"
+    },
+    "./workspace": {
+      "types": "./dist/workspace/index.d.ts",
+      "import": "./dist/workspace/index.js"
+    },
     "./linear": {
       "types": "./dist/linear/index.d.ts",
       "import": "./dist/linear/index.js"

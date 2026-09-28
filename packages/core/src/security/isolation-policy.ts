@@ -5,6 +5,11 @@
  * passing through unknown runtime options.
  */
 export interface WorkerMount {
+  /**
+   * Host path to mount. Adapters must resolve symlinks with `realpath` before
+   * passing a path to this policy; lexical validation cannot identify a
+   * symlink that points into a protected system directory.
+   */
   readonly source: string;
   /** Docker calls this field `target`; `destination` is the portable spelling. */
   readonly destination?: string;
@@ -14,7 +19,11 @@ export interface WorkerMount {
 }
 
 export interface WorkerWorkspace {
-  /** Host path containing the checkout. */
+  /**
+   * Host path containing the checkout. Adapters must resolve symlinks with
+   * `realpath` before passing a path to this policy; lexical validation cannot
+   * identify a symlink that points into a protected system directory.
+   */
   readonly hostPath?: string;
   /** Container path at which the checkout is exposed. */
   readonly path?: string;
@@ -137,6 +146,7 @@ const DEFAULT_POLICY: Required<Pick<WorkerIsolationPolicy, "allowedCapabilities"
 const SENSITIVE_KEY = /(secret|token|password|passwd|authorization|api[-_]?key|private[-_]?key|credential|cookie)/i;
 const HOME_PATH = /^(?:~(?:\/|$)|\/(?:home|root|Users)(?:\/|$)|\/private\/var\/root(?:\/|$))/;
 const DOCKER_SOCKET = /(?:^|\/)(?:docker\.sock|docker\.socket)$/i;
+const SYSTEM_PATHS = ["/", "/etc", "/var", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -145,16 +155,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Redact values beneath secret-like keys, including nested log structures. */
 export function redactSecrets<T>(value: T): T {
   const seen = new WeakSet<object>();
-  const redact = (current: unknown, key?: string): unknown => {
-    if (key !== undefined && SENSITIVE_KEY.test(key)) return "[REDACTED]";
+  const redact = (current: unknown, key?: string, credentialContext = false): unknown => {
+    const isCredentialsContainer = key?.toLowerCase() === "credentials";
+    if (
+      key !== undefined &&
+      ((credentialContext && key.toLowerCase() === "value") ||
+        (!isCredentialsContainer && SENSITIVE_KEY.test(key)))
+    ) {
+      return "[REDACTED]";
+    }
     if (typeof current === "string") return current;
     if (current === null || typeof current !== "object") return current;
     if (seen.has(current)) return "[CIRCULAR]";
     seen.add(current);
-    if (Array.isArray(current)) return current.map((item) => redact(item));
+    if (Array.isArray(current)) return current.map((item) => redact(item, undefined, credentialContext));
     const result: Record<string, unknown> = {};
     for (const [childKey, childValue] of Object.entries(current)) {
-      result[childKey] = redact(childValue, childKey);
+      result[childKey] = redact(childValue, childKey, credentialContext || childKey.toLowerCase() === "credentials");
     }
     return result;
   };
@@ -166,6 +183,25 @@ export const redactLogFields = redactSecrets;
 
 function pathHasTraversal(path: string): boolean {
   return path.split(/[\\/]+/u).some((part) => part === ".." || part === ".");
+}
+
+/** Normalize separators for policy checks without following filesystem links. */
+function canonicalPath(path: string): string | undefined {
+  if (!path.startsWith("/")) return undefined;
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return `/${parts.join("/")}`;
+}
+
+function isSystemPath(path: string): boolean {
+  const canonical = canonicalPath(path);
+  return canonical !== undefined && SYSTEM_PATHS.some(
+    (systemPath) => canonical === systemPath || canonical.startsWith(`${systemPath}/`),
+  );
 }
 
 function isRoot(value: string | number | undefined): boolean {
@@ -233,8 +269,8 @@ function validateMounts(
     if (HOME_PATH.test(typedMount.source)) {
       add(failures, path, "forbidden-mount", "host-home mounts are not permitted");
     }
-    if (["/", "/etc", "/var", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev"].includes(typedMount.source)) {
-      add(failures, path, "forbidden-mount", "host system mounts are not permitted");
+    if (isSystemPath(typedMount.source) && !DOCKER_SOCKET.test(typedMount.source)) {
+      add(failures, path, "forbidden-mount", "host system mounts and their descendants are not permitted");
     }
     if (typedMount.type === "bind" && typedMount.readOnly !== true && destination === "/etc") {
       add(failures, path, "forbidden-mount", "sensitive system mounts must not be writable");
@@ -251,6 +287,8 @@ function validateMounts(
   if (workspace.hostPath !== undefined) {
     if (typeof workspace.hostPath !== "string" || !workspace.hostPath.startsWith("/") || pathHasTraversal(workspace.hostPath)) {
       add(failures, "workspace.hostPath", "workspace", "workspace host path must be an absolute, canonical path");
+    } else if (isSystemPath(workspace.hostPath)) {
+      add(failures, "workspace.hostPath", "workspace", "workspace must not use a host system path");
     } else if ((policy.workspace?.requireNonRootHostPath ?? true) && HOME_PATH.test(workspace.hostPath)) {
       add(failures, "workspace.hostPath", "workspace", "workspace must not be inside a host home directory");
     }
