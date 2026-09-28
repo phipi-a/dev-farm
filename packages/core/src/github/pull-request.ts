@@ -105,8 +105,8 @@ export async function updatePullRequest(
   if (input.targetBranch !== undefined && !input.targetBranch.trim()) {
     throw new Error("pull request target branch must not be empty");
   }
-  const sourceBranch = changes ? inputOrCurrent.sourceBranch : input.sourceBranch;
-  const targetBranch = changes ? inputOrCurrent.targetBranch : input.targetBranch;
+  const sourceBranch = changes?.sourceBranch ?? inputOrCurrent.sourceBranch;
+  const targetBranch = changes?.targetBranch ?? inputOrCurrent.targetBranch;
   if (
     sourceBranch !== undefined &&
     targetBranch !== undefined &&
