@@ -1,0 +1,19 @@
+{
+  "scenario": "DEV-28 credential-free three-ticket dogfood",
+  "mode": "fake-only-by-default",
+  "liveProviderExecution": {
+    "enabled": false,
+    "skipped": true,
+    "reason": "Real Docker, Linear, GitHub, SQLite, tmux, and agent execution requires an explicit host integration and credentials."
+  },
+  "tickets": 3,
+  "checks": [
+    { "id": "worker-isolation", "expected": "three unique worker, workspace, branch, container, and tmux identities" },
+    { "id": "question-continue", "expected": "question is answered by the same worker identity" },
+    { "id": "review-continue", "expected": "review feedback is handled by the same worker identity" },
+    { "id": "explicit-merge", "expected": "exactly one explicit GitHub merge call" },
+    { "id": "cleanup", "expected": "all workers destroyed and Docker/tmux resources removed" },
+    { "id": "projection-consistency", "expected": "merged GitHub PR maps to Linear Done; open PRs map to Linear In Review" },
+    { "id": "credential-free", "expected": "no provider credentials or wall-clock sleeps are used" }
+  ]
+}
