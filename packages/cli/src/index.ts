@@ -238,7 +238,10 @@ function defaultOutput(): CliOutput {
 }
 
 function redact(value: unknown, key?: string): unknown {
-  if (key !== undefined && /(token|secret|password|credential|authorization|private.?key)/iu.test(key)) {
+  if (
+    key !== undefined &&
+    /(token|secret|password|credential|authorization|private.?key)/iu.test(key)
+  ) {
     return "[REDACTED]";
   }
   if (typeof value === "string") {
@@ -252,7 +255,10 @@ function redact(value: unknown, key?: string): unknown {
   if (Array.isArray(value)) return value.map((item) => redact(item));
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value).map(([entryKey, entryValue]) => [entryKey, redact(entryValue, entryKey)]),
+      Object.entries(value).map(([entryKey, entryValue]) => [
+        entryKey,
+        redact(entryValue, entryKey),
+      ]),
     );
   }
   return value;
@@ -278,9 +284,7 @@ function outputSuccess(value: unknown, json: boolean): string {
 
 function outputError(error: unknown, json: boolean): string {
   const message = redact(error instanceof Error ? error.message : String(error));
-  return json
-    ? `${JSON.stringify({ error: message })}\n`
-    : `Error: ${message}\n`;
+  return json ? `${JSON.stringify({ error: message })}\n` : `Error: ${message}\n`;
 }
 
 /** Execute a command with injectable operations and output/confirmation ports. */
@@ -299,7 +303,8 @@ export async function runCli(
   if (parsed.help || parsed.command === undefined) {
     const stdout = parsed.command === undefined && !parsed.help ? "" : USAGE;
     return {
-      exitCode: parsed.command === undefined && !parsed.help ? EXIT_CODES.usage : EXIT_CODES.success,
+      exitCode:
+        parsed.command === undefined && !parsed.help ? EXIT_CODES.usage : EXIT_CODES.success,
       stdout,
       stderr: parsed.command === undefined && !parsed.help ? USAGE : "",
     };
@@ -314,7 +319,12 @@ export async function runCli(
 
   if (DESTRUCTIVE_COMMANDS.has(parsed.command) && !parsed.yes) {
     const confirm = dependencies.output?.confirm;
-    if (confirm === undefined || !(await confirm(`Confirm ${parsed.command}${request.target ? ` for ${request.target}` : ""}?`))) {
+    if (
+      confirm === undefined ||
+      !(await confirm(
+        `Confirm ${parsed.command}${request.target ? ` for ${request.target}` : ""}?`,
+      ))
+    ) {
       const error = outputError("confirmation required; pass --yes to continue", parsed.json);
       return { exitCode: EXIT_CODES.confirmationRequired, stdout: "", stderr: error };
     }
@@ -345,10 +355,11 @@ export async function main(
   return result.exitCode;
 }
 
-const invokedDirectly = process.argv[1]?.endsWith("/cli/src/index.ts") === true
-  || process.argv[1]?.endsWith("/cli/dist/index.js") === true
-  || process.argv[1]?.endsWith("/.bin/agent-farm") === true
-  || process.argv[1] === "agent-farm";
+const invokedDirectly =
+  process.argv[1]?.endsWith("/cli/src/index.ts") === true ||
+  process.argv[1]?.endsWith("/cli/dist/index.js") === true ||
+  process.argv[1]?.endsWith("/.bin/agent-farm") === true ||
+  process.argv[1] === "agent-farm";
 if (invokedDirectly) {
   void main().then((exitCode) => {
     process.exitCode = exitCode;

@@ -34,7 +34,10 @@ class FakeDockerRunner implements DockerCommandRunner {
     }
     if (operation === "start") {
       const row = this.containers.get(args[1]);
-      if (row) (row.State as Record<string, unknown>).Running = true, (row.State as Record<string, unknown>).Status = "running";
+      if (row) {
+        (row.State as Record<string, unknown>).Running = true;
+        (row.State as Record<string, unknown>).Status = "running";
+      }
       return this.result(row ? "" : "", row ? 0 : 1, row ? "" : "No such container");
     }
     if (operation === "inspect") {
