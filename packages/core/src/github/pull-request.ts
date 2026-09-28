@@ -1,5 +1,10 @@
 import { PullRequest, PullRequestRef, Repository } from "./models";
-import { CreatePullRequestInput, GitHubTransport } from "./transports";
+import {
+  CreatePullRequestInput,
+  GitHubTransport,
+  PullRequestChanges,
+  UpdatePullRequestInput,
+} from "./transports";
 
 export interface PullRequestIntent extends CreatePullRequestInput {}
 
@@ -56,6 +61,65 @@ export async function findOrCreatePullRequest(
     }
     throw createError;
   }
+}
+
+/**
+ * Updates an existing PR through the injected transport. The overload taking a
+ * current PR makes retries cheap: an empty change set is a no-op and does not
+ * issue a remote mutation.
+ */
+export async function updatePullRequest(
+  github: GitHubTransport,
+  input: UpdatePullRequestInput,
+): Promise<PullRequest>;
+export async function updatePullRequest(
+  github: GitHubTransport,
+  current: PullRequest,
+  changes: PullRequestChanges,
+): Promise<PullRequest>;
+export async function updatePullRequest(
+  github: GitHubTransport,
+  inputOrCurrent: UpdatePullRequestInput | PullRequest,
+  changes?: PullRequestChanges,
+): Promise<PullRequest> {
+  const input: UpdatePullRequestInput = changes
+    ? {
+        repository: inputOrCurrent.repository,
+        number: inputOrCurrent.number,
+        ...changes,
+      }
+    : inputOrCurrent;
+
+  if (!input.repository.owner.trim() || !input.repository.name.trim()) {
+    throw new Error("pull request repository must have an owner and name");
+  }
+  if (!Number.isInteger(input.number) || input.number < 1) {
+    throw new Error("pull request number must be a positive integer");
+  }
+  if (input.title !== undefined && !input.title.trim()) {
+    throw new Error("pull request title must not be empty");
+  }
+  if (input.sourceBranch !== undefined && !input.sourceBranch.trim()) {
+    throw new Error("pull request source branch must not be empty");
+  }
+  if (input.targetBranch !== undefined && !input.targetBranch.trim()) {
+    throw new Error("pull request target branch must not be empty");
+  }
+  const sourceBranch = changes ? inputOrCurrent.sourceBranch : input.sourceBranch;
+  const targetBranch = changes ? inputOrCurrent.targetBranch : input.targetBranch;
+  if (
+    sourceBranch !== undefined &&
+    targetBranch !== undefined &&
+    sourceBranch === targetBranch
+  ) {
+    throw new Error("pull request source and target branches must differ");
+  }
+
+  const { repository, number, ...requestedChanges } = input;
+  if (changes && Object.keys(requestedChanges).length === 0) {
+    return inputOrCurrent as PullRequest;
+  }
+  return github.updatePullRequest({ repository, number, ...requestedChanges });
 }
 
 /** Alias for callers that describe this operation as ensuring a PR exists. */

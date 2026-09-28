@@ -18,18 +18,31 @@ LABEL org.opencontainers.image.title="dev-farm Pi developer base" \
 ENV HOME=/home/dev \
     WORKSPACE=/workspace
 
-# The GitHub CLI archive is selected by target architecture and verified before
-# it is unpacked. Pi is installed from its exact npm version; npm verifies the
-# package and its dependency integrity from the registry metadata.
+# Debian package metadata and versions are fixed to one signed snapshot. The
+# base has no CA certificates, so ca-certificates is bootstrapped over HTTP;
+# apt verifies the signed Release metadata and package hash, then all further
+# snapshot access uses HTTPS. Direct package versions are explicit so a rebuild
+# cannot silently select newer bookworm updates.
 RUN set -eux; \
+    rm -f /etc/apt/sources.list; \
+    rm -f /etc/apt/sources.list.d/*; \
+    printf '%s\n' \
+      'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260918T000000Z bookworm main' \
+      > /etc/apt/sources.list.d/debian-snapshot.list; \
     apt-get update; \
     apt-get install --yes --no-install-recommends \
-      bash \
-      ca-certificates \
-      curl \
-      git \
-      ripgrep \
-      tmux; \
+      ca-certificates=20230311+deb12u1; \
+    rm -rf /var/lib/apt/lists/*; \
+    printf '%s\n' \
+      'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20260918T000000Z bookworm main' \
+      > /etc/apt/sources.list.d/debian-snapshot.list; \
+    apt-get update; \
+    apt-get install --yes --no-install-recommends \
+      bash=5.2.15-2+b13 \
+      curl=7.88.1-10+deb12u15 \
+      git=1:2.39.5-0+deb12u3 \
+      ripgrep=13.0.0-4+b2 \
+      tmux=3.3a-3; \
     target_arch="${TARGETARCH:-amd64}"; \
     case "${target_arch}" in \
       amd64) gh_arch=amd64; gh_sha256=9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8 ;; \
@@ -42,11 +55,19 @@ RUN set -eux; \
     echo "${gh_sha256}  /tmp/gh.tar.gz" | sha256sum --check --strict; \
     tar --extract --gzip --file /tmp/gh.tar.gz --directory /tmp; \
     install --mode=0755 "/tmp/gh_${GH_VERSION}_linux_${gh_arch}/bin/gh" /usr/local/bin/gh; \
-    npm install --global --omit=dev --no-audit --no-fund "@earendil-works/pi-coding-agent@${PI_VERSION}"; \
-    npm cache clean --force; \
     rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${gh_arch}"; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
+
+# npm ci cannot consume a lockfile in global mode. Install the committed
+# lockfile locally instead and expose its immutable bin shim on PATH.
+COPY package.json package-lock.json /opt/pi/
+RUN set -eux; \
+    test "${PI_VERSION}" = 0.87.1; \
+    cd /opt/pi; \
+    npm ci --omit=dev --ignore-scripts --no-audit --no-fund; \
+    npm cache clean --force
+ENV PATH=/opt/pi/node_modules/.bin:${PATH}
 
 RUN set -eux; \
     groupadd --gid "${DEV_GID}" dev; \

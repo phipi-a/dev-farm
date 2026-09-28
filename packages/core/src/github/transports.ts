@@ -28,6 +28,20 @@ export interface CreatePullRequestInput extends PullRequestRef {
   body?: string;
 }
 
+/** Fields that can be changed on an existing pull request. */
+export interface PullRequestChanges {
+  title?: string;
+  body?: string;
+  /** Supported by providers that allow changing the pull request head. */
+  sourceBranch?: string;
+  targetBranch?: string;
+}
+
+export interface UpdatePullRequestInput extends PullRequestChanges {
+  repository: Repository;
+  number: number;
+}
+
 /**
  * GitHub operations are deliberately represented as an injected port. There
  * is no merge operation here: authorization and merge policy belong elsewhere.
@@ -37,6 +51,7 @@ export interface CreatePullRequestInput extends PullRequestRef {
 export interface GitHubTransport {
   findPullRequest(ref: PullRequestRef): Promise<PullRequest | undefined>;
   createPullRequest(input: CreatePullRequestInput): Promise<PullRequest>;
+  updatePullRequest(input: UpdatePullRequestInput): Promise<PullRequest>;
   getPullRequestStatus(ref: PullRequestRef): Promise<PullRequestStatus>;
   getCiStatus(ref: PullRequestRef): Promise<CiStatus>;
 }
