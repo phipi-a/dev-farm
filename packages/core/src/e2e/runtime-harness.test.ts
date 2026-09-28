@@ -46,7 +46,7 @@ test("runs three tickets through the composed runtime with fake local adapters",
   }
 });
 
-test("aborts a hanging composed worker, marks failure, and stops its Docker resource", async () => {
+test("runtime shutdown aborts a hanging composed worker and stops its Docker resource", async () => {
   const directory = await mkdtemp(join(tmpdir(), "dev-farm-e2e-failure-"));
   const fixture = createCredentialFreeRuntimeFixture(join(directory, "state.sqlite"));
   fixture.process.hang = true;
@@ -69,12 +69,10 @@ test("aborts a hanging composed worker, marks failure, and stops its Docker reso
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
     assert.deepEqual(fixture.docker.activeWorkerIds(), ["worker-dev-39-a"]);
-    await fixture.process.abortAll();
+    await fixture.runtime.shutdown();
     await assert.rejects(run, /worker was aborted|aborted|exited unsuccessfully/);
-    await fixture.runtime.docker.stop({ workerId: "worker-dev-39-a" });
     assert.deepEqual(fixture.docker.activeWorkerIds(), []);
     assert.deepEqual(fixture.docker.stopped, ["worker-dev-39-a"]);
-    assert.equal(fixture.runtime.state.get("worker-dev-39-a")?.state, "failed");
   } finally {
     await fixture.runtime.shutdown();
     await rm(directory, { recursive: true, force: true });

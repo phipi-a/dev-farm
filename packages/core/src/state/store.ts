@@ -1,4 +1,5 @@
 import type { QuestionMetadataPort, QuestionRecord } from "../question/models";
+import { redactQuestionText } from "../question/signal";
 import type { SqliteDatabase, StateDatabaseOptions } from "./database";
 import { openSqliteDatabase } from "./sqlite";
 import {
@@ -145,7 +146,10 @@ function questionText(value: unknown, field: string): string {
   const result = text(value, field);
   if (result === undefined) throw new StateStoreError(`${field} is required`);
   if (result.length > QUESTION_MAX_LENGTH) throw new StateStoreError(`${field} exceeds ${QUESTION_MAX_LENGTH} characters`);
-  return result;
+  const redacted = redactQuestionText(result).trim();
+  if (redacted.length === 0) throw new StateStoreError(`${field} must contain text after redaction`);
+  if (redacted.length > QUESTION_MAX_LENGTH) throw new StateStoreError(`${field} exceeds ${QUESTION_MAX_LENGTH} characters`);
+  return redacted;
 }
 
 function rowToQuestion(row: WorkerRow): QuestionRecord {

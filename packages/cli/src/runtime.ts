@@ -15,8 +15,11 @@ export interface RuntimeStatePort {
 
 /** The resource operations that the composition root already exposes. */
 export interface RuntimeResourcePort {
-  stop(worker: string): Promise<void>;
-  remove?(worker: string, options?: { readonly force?: boolean }): Promise<void>;
+  stop(worker: string | { readonly workerId: string }): Promise<void>;
+  remove?(
+    worker: string | { readonly workerId: string },
+    options?: { readonly force?: boolean },
+  ): Promise<void>;
 }
 
 export interface RuntimeTmuxPort {
@@ -157,16 +160,31 @@ export function createRuntimeOperations(
   const stop = async (request: FarmOperationRequest): Promise<unknown> => {
     const target = targetOf(request);
     const worker = await workerOf(runtime, request);
-    await runtime.docker.stop(target);
+    const current = workerState(worker);
+    if (current === "destroyed" || current === "queued" || current === "failed") return worker;
+    // WorkerContainerManager resolves this request through its managed labels;
+    // the CLI target is a worker identity, not a Docker container ID.
+    await runtime.docker.stop({ workerId: target });
     return transition(runtime, target, worker, "stopped");
   };
 
   const destroy = async (request: FarmOperationRequest): Promise<unknown> => {
     const target = targetOf(request);
-    const worker = await workerOf(runtime, request);
-    await runtime.docker.stop(target);
+    let worker = await workerOf(runtime, request);
+    const current = workerState(worker);
+    if (current === "destroyed") return worker;
     if (runtime.docker.remove === undefined) throw new RuntimeOperationUnavailableError("destroy");
-    await runtime.docker.remove(target, { force: true });
+
+    // A queued worker has no container yet. Failed workers may already have
+    // been transitioned by orchestration, so only states with a valid stopped
+    // transition need that lifecycle step before destruction.
+    if (current !== "queued" && current !== "stopped" && current !== "failed") {
+      await runtime.docker.stop({ workerId: target });
+      worker = await transition(runtime, target, worker, "stopped");
+    } else if (current === "failed") {
+      await runtime.docker.stop({ workerId: target });
+    }
+    if (current !== "queued") await runtime.docker.remove({ workerId: target }, { force: true });
     return transition(runtime, target, worker, "destroyed");
   };
 

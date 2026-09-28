@@ -48,20 +48,36 @@ test("persists question and answer metadata durably without replacing worker sta
       questionId: "question-1",
       workerId: "worker-q",
       issueIdentifier: "DEV-32",
-      question: "Which region? token=[REDACTED]",
+      question: "Which region? token=question-token secret=question-secret authorization=question-auth Bearer question-bearer",
       askedAt: "2025-01-14T10:00:00.000Z",
       status: "unanswered",
     });
     assert.equal(asked.status, "unanswered");
-    assert.equal(store.getQuestion("worker-q")?.question, "Which region? token=[REDACTED]");
-    const answered = store.saveQuestion({ ...asked, status: "answered", answer: "eu-west-1 token=[REDACTED]", answeredAt: "2025-01-14T10:01:00.000Z" });
-    assert.equal(answered.answer, "eu-west-1 token=[REDACTED]");
+    assert.equal(
+      store.getQuestion("worker-q")?.question,
+      "Which region? token=[REDACTED] secret=[REDACTED] authorization=[REDACTED] Bearer [REDACTED]",
+    );
+    const answered = store.saveQuestion({
+      ...asked,
+      status: "answered",
+      answer: "eu-west-1 token=answer-token secret=answer-secret authorization=answer-auth Bearer answer-bearer",
+      answeredAt: "2025-01-14T10:01:00.000Z",
+    });
+    assert.equal(
+      answered.answer,
+      "eu-west-1 token=[REDACTED] secret=[REDACTED] authorization=[REDACTED] Bearer [REDACTED]",
+    );
+    assert.doesNotMatch(JSON.stringify(answered), /question-token|question-secret|question-auth|question-bearer|answer-token|answer-secret|answer-auth|answer-bearer/);
     assert.equal(store.get("worker-q")?.state, "queued");
     assert.equal(store.questionMetadata().get("worker-q")?.questionId, "question-1");
     store.close();
 
     const reopened = new WorkerStateStore({ path });
-    assert.equal(reopened.getQuestion("worker-q")?.answer, "eu-west-1 token=[REDACTED]");
+    assert.equal(
+      reopened.getQuestion("worker-q")?.answer,
+      "eu-west-1 token=[REDACTED] secret=[REDACTED] authorization=[REDACTED] Bearer [REDACTED]",
+    );
+    assert.doesNotMatch(JSON.stringify(reopened.getQuestion("worker-q")), /answer-token|answer-secret|answer-auth|answer-bearer/);
     reopened.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });

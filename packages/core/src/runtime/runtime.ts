@@ -296,7 +296,7 @@ export function createRuntime(options: RuntimeOptions): RuntimeService {
         await Promise.allSettled(
           workerIds.map(async (workerId) => {
             try {
-              await docker.stop(workerId);
+              await docker.stop({ workerId });
             } catch {
               /* shutdown remains best-effort for already-gone workers */
             }

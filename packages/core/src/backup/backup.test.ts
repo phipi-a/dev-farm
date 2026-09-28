@@ -45,6 +45,21 @@ test("creates an encrypted, integrity-checked redacted snapshot", () => {
   source.close();
 });
 
+test("redacts authorization assignment and bearer header forms", () => {
+  const source = sourceStore();
+  source.update("worker-a", {
+    lastError: "Authorization: Bearer header-secret authorization=assignment-secret",
+  });
+  const manager = new BackupManager(source, { key });
+  const payload = manager.verify(manager.create("worker-a", { snapshotId: "redaction" })).payload;
+  assert.equal(
+    payload.worker.lastError,
+    "Authorization: [REDACTED] authorization=[REDACTED]",
+  );
+  assert.doesNotMatch(JSON.stringify(payload), /header-secret|assignment-secret/);
+  source.close();
+});
+
 test("rejects tampering and unsupported versions before restore", () => {
   const source = sourceStore();
   const manager = new BackupManager(source, { key });

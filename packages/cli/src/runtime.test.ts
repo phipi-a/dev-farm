@@ -7,7 +7,10 @@ import {
   type RuntimeFacade,
 } from "./runtime";
 
-function runtime(records: Record<string, unknown>[] = []): RuntimeFacade {
+function runtime(
+  records: Record<string, unknown>[] = [],
+  calls: { stop: unknown[]; remove: unknown[] } = { stop: [], remove: [] },
+): RuntimeFacade {
   const byId = new Map(records.map((record) => [record.workerId as string, record]));
   return {
     state: {
@@ -28,8 +31,12 @@ function runtime(records: Record<string, unknown>[] = []): RuntimeFacade {
       },
     },
     docker: {
-      stop: async () => undefined,
-      remove: async () => undefined,
+      stop: async (worker) => {
+        calls.stop.push(worker);
+      },
+      remove: async (worker) => {
+        calls.remove.push(worker);
+      },
     },
     tmux: {
       sessionName: "dev-farm",
@@ -42,7 +49,8 @@ function runtime(records: Record<string, unknown>[] = []): RuntimeFacade {
 }
 
 test("adapts runtime state and resource services to FarmOperations", async () => {
-  const service = runtime([{ workerId: "worker-1", issueIdentifier: "FARM-1", state: "running" }]);
+  const calls = { stop: [] as unknown[], remove: [] as unknown[] };
+  const service = runtime([{ workerId: "worker-1", issueIdentifier: "FARM-1", state: "running" }], calls);
   const operations = createRuntimeOperations(service);
 
   assert.deepEqual(await operations.list({ command: "list", args: [], options: {} }), [
@@ -81,6 +89,21 @@ test("adapts runtime state and resource services to FarmOperations", async () =>
     ).state,
     "stopped",
   );
+  assert.deepEqual(calls.stop, [{ workerId: "worker-1" }]);
+});
+
+test("destroys through labelled resources and valid lifecycle transitions idempotently", async () => {
+  const calls = { stop: [] as unknown[], remove: [] as unknown[] };
+  const service = runtime([{ workerId: "worker-1", state: "running" }], calls);
+  const operations = createRuntimeOperations(service);
+  const request = { command: "destroy" as const, target: "worker-1", args: ["worker-1"], options: {} };
+
+  assert.equal((await operations.destroy(request) as { state: string }).state, "destroyed");
+  assert.deepEqual(calls.stop, [{ workerId: "worker-1" }]);
+  assert.deepEqual(calls.remove, [{ workerId: "worker-1" }]);
+  assert.equal((await operations.destroy(request) as { state: string }).state, "destroyed");
+  assert.deepEqual(calls.stop, [{ workerId: "worker-1" }]);
+  assert.deepEqual(calls.remove, [{ workerId: "worker-1" }]);
 });
 
 test("delegates higher-level commands to injected runtime workflow handlers", async () => {

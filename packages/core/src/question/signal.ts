@@ -10,7 +10,7 @@ const SECRET_PATTERNS = [
 ];
 const BEARER_SECRET_PATTERN = /(\bBearer\s+)[A-Za-z0-9._~+/=-]+/giu;
 const QUERY_SECRET_PATTERN = /([?&](?:token|access_token|api[_-]?key|password|secret)=)[^&\s]+/giu;
-const ASSIGNMENT_SECRET_PATTERN = /(\b(?:token|access[_-]?token|api[_-]?key|password|secret)\s*[:=])\s*[^\s,;]+/giu;
+const ASSIGNMENT_SECRET_PATTERN = /(\b(?:token|access[_-]?token|api[_-]?key|password|secret|authorization)\s*[:=])\s*(?:Bearer\s+)?[^\s,;]+/giu;
 
 function text(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0 || value.includes("\u0000")) {
