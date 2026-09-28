@@ -90,6 +90,7 @@ export type {
 export * from "./orchestrator/index";
 export * from "./parallel/index";
 export * from "./ports/index";
+export * from "./question/index";
 export * from "./recovery/index";
 export * from "./review/index";
 export * from "./security/index";

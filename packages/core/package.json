@@ -66,6 +66,10 @@
       "types": "./dist/ports/index.d.ts",
       "import": "./dist/ports/index.js"
     },
+    "./question": {
+      "types": "./dist/question/index.d.ts",
+      "import": "./dist/question/index.js"
+    },
     "./recovery": {
       "types": "./dist/recovery/index.d.ts",
       "import": "./dist/recovery/index.js"
